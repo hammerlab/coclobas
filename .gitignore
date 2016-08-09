@@ -1,0 +1,5 @@
+/.merlin
+/.ocamlinit
+*.byte
+*.cma
+_build/
