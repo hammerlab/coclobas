@@ -340,24 +340,27 @@ let server ~port =
   in
   Server.create ~mode:(`TCP (`Port port)) (Server.make ~callback ())
 
+module Error = struct
+  let to_string =
+    let exn = Printexc.to_string in
+    function
+    | `Shell (cmd, ex) ->
+      sprintf "Shell-command failed: %S" cmd
+    | `Persist e ->
+      Persist.Error.to_string e
+    | `Storage e -> Storage.Error.to_string e
+    | `IO (`Write_file_exn (path, e)) ->
+      sprintf "Writing file %S: %s" path (exn e)
+    | `IO (`Read_file_exn (path, e)) ->
+      sprintf "Reading file %S: %s" path (exn e)
+    | `Job e -> Job.Error.to_string e
+end
+
 let run_deferred d =
   match Lwt_main.run d with
   | `Ok () -> ()
   | `Error e ->
-    let exn = Printexc.to_string in
-    eprintf "Error:\n   %s\n"
-      begin match e with
-      | `Shell (cmd, ex) ->
-        sprintf "Shell-command failed: %S" cmd
-      | `Persist e ->
-        Persist.Error.to_string e
-      | `Storage e -> Storage.Error.to_string e
-      | `IO (`Write_file_exn (path, e)) ->
-        sprintf "Writing file %S: %s" path (exn e)
-      | `IO (`Read_file_exn (path, e)) ->
-        sprintf "Reading file %S: %s" path (exn e)
-      | `Job e -> Job.Error.to_string e
-      end;
+    eprintf "Error:\n   %s\n" (Error.to_string e);
     exit 2
 
 let required_string ~doc optname f =
@@ -469,16 +472,26 @@ let test_job_terms () =
         return ()) in
   let show_all =
     all_jobs_cmd "show-all" ~doc:"Show all jobs" ~f:(fun job ->
-        Job.get_status_json job
-        >>= fun blob ->
-        Job.Status.of_json blob
-        >>= fun status ->
-        printf "Job: %s (%s on %s): %s\n"
-          job.Job.id
-          (String.concat ~sep:" " job.Job.command)
-          job.Job.image
-          (Job.Status.show status);
-        return ())
+        begin
+          Job.get_status_json job
+          >>= fun blob ->
+          Job.Status.of_json blob
+        end >>< begin function
+        | `Ok status ->
+          printf "Job: %s (%s on %s): %s\n"
+            job.Job.id
+            (String.concat ~sep:" " job.Job.command)
+            job.Job.image
+            (Job.Status.show status);
+          return ()
+        | `Error e ->
+          printf "Job: %s (%s on %s): NO STATUS: %s\n"
+            job.Job.id
+            (String.concat ~sep:" " job.Job.command)
+            job.Job.image
+            (Error.to_string e);
+            return ()
+      end)
   in
   [start; describe; status; show_all]
 
