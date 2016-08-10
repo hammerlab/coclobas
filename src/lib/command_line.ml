@@ -77,6 +77,7 @@ module Cluster = struct
     zone: string;
     min_nodes: int [@default 1];
     max_nodes: int;
+    machine_type: string [@default "n1-highmem-8"]
   }
   [@@deriving yojson, show, make]
 
@@ -86,8 +87,9 @@ module Cluster = struct
         "gcloud container clusters create %s \
          --quiet --wait \
          --zone %s --num-nodes=%d --min-nodes=%d --max-nodes=%d \
+         --machine-type=%s \
          --enable-autoscaling"
-        t.name t.zone t.min_nodes t.min_nodes t.max_nodes
+        t.name t.zone t.min_nodes t.min_nodes t.max_nodes t.machine_type
     in
     Pvem_lwt_unix.System.Shell.do_or_fail cmd
 
@@ -129,6 +131,8 @@ module Job = struct
     image: string;
     command: string list;
     volume_mounts: [ `Nfs of Nfs_mount.t ] list;
+    memory: [ `GB of int ] [@default `GB 50];
+    cpus: int [@default 7];
   }
   [@@deriving yojson, show, make]
 
@@ -137,6 +141,11 @@ module Job = struct
     make ~id ~image ?volume_mounts ~command ()
 
   let start t =
+    let requests_json =
+      `Assoc [
+        "memory", (let `GB gb = t.memory in `String (sprintf "%dG" gb));
+        "cpu", `String (Int.to_string t.cpus);
+      ] in
     let json : Yojson.Safe.json =
       `Assoc [
         "kind", `String "Pod";
@@ -161,7 +170,10 @@ module Job = struct
                     "mountPath", `String (Nfs_mount.point m);
                   ])
                 );
-            ]
+              "resources", `Assoc [
+                "requests", requests_json;
+              ];
+            ];
           ];
           "volumes", `List (
             List.map t.volume_mounts ~f:(fun (`Nfs m) ->
