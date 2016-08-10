@@ -7,10 +7,18 @@ let version = "master"
 let findlib_deps = [
   "nonstd";
   "sosa";
+  "pvem_lwt_unix";
+  "cohttp.lwt";
+  "irmin.git";
+  "irmin.unix";
+  "cmdliner";
+  "ppx_deriving.std";
+  "ppx_deriving_yojson";
 ]
 
 let lib : Project.item =
   Project.lib project_name
+    ~thread:()
     ~findlib_deps
     ~dir:"src/lib"
     ~pack_name:project_name
@@ -18,8 +26,9 @@ let lib : Project.item =
 
 let app : Project.item =
   Project.app project_name
-  ~file:"src/app/main.ml"
-  ~internal_deps:[lib]
+    ~thread:()
+    ~file:"src/app/main.ml"
+    ~internal_deps:[lib]
 
 let ocamlinit_postfix = [
   sprintf "open %s" (String.capitalize project_name);
