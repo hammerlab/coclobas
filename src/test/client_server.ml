@@ -86,6 +86,9 @@ let () =
       curl_submit_job_01 ()
       >>= fun lines ->
       test_out "curl_submit_job_01: %s" (String.concat ~sep:", " lines);
+      Lwt_unix.sleep 5.
+      >>= fun () ->
+      server_process#kill Sys.sigint;
       server_process#close
       >>= fun _ ->
       return ()
