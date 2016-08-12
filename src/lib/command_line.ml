@@ -332,6 +332,8 @@ module Server = struct
     Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
     >>= fun spec ->
     let job = Job.make spec in
+    Job.save (Storage.make t.root) job
+    >>= fun () ->
     t.jobs <- job :: t.jobs;
     return `Done
 
@@ -363,9 +365,13 @@ module Server = struct
         >>< begin function
         | `Ok () -> 
           j.Job.status <- `Started (now ());
+          Job.save (Storage.make t.root) j
+          >>= fun () ->
           return ()
         | `Error e ->
           j.Job.status <- `Error (Error.to_string e);
+          Job.save (Storage.make t.root) j
+          >>= fun () ->
           return ()
         end
       | `Update j ->
@@ -381,10 +387,14 @@ module Server = struct
           | { phase = `Unknown }
           | { phase = `Running } ->
             j.Job.status <- `Started (now ());
+            Job.save (Storage.make t.root) j
+            >>= fun () ->
             return ()
           | { phase = `Failed }
           | { phase = `Succeeded } ->
             j.Job.status <- `Finished (now ());
+            Job.save (Storage.make t.root) j
+            >>= fun () ->
             return ()
           end
         end >>< begin function
@@ -406,7 +416,30 @@ module Server = struct
     Lwt.async (fun () -> loop t);
     return ()
 
+  let get_job_status t ids =
+    Deferred_list.while_sequential ids ~f:(fun id ->
+        Job.get (Storage.make t.root) id
+        >>= fun job ->
+        return (`Assoc [
+            "id", `String id;
+            "status", Job.status job |> Job.Status.to_yojson;
+          ]))
+    >>= fun l ->
+    return (`Json (`List l))
 
+  let respond_result r =
+    let open Cohttp in
+    let open Cohttp_lwt_unix in
+    let open Lwt in
+    r >>= begin function
+    | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
+    | `Ok (`Json j) ->
+      let body = Yojson.Safe.pretty_to_string ~std:true j in
+      Server.respond_string ~status:`OK ~body ()
+    | `Error e ->
+      Server.respond_string
+        ~status:`Bad_request ~body:(Error.to_string e) ()
+    end
 
   let start t =
     let condition = Lwt_condition.create () in
@@ -427,17 +460,18 @@ module Server = struct
                 | `Ready -> "Ready"
               in
               Server.respond_string ~status:`OK ~body ()
+            | "/job/status" ->
+              let ids =
+                Uri.query uri
+                |> List.concat_map ~f:(function
+                  | ("id", l) -> l
+                  | _ -> []) in
+              get_job_status t ids |> respond_result
             | "/job/submit" ->
               body |> Cohttp_lwt_body.to_string
               >>= fun body_string ->
               incoming_job t body_string
-              >>= fun result ->
-              begin match result with
-              | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
-              | `Error e ->
-                Server.respond_string
-                  ~status:`Bad_request ~body:(Error.to_string e) ()
-              end
+              |> respond_result
             | other ->
               let meth = req |> Request.meth |> Code.string_of_method in
               let headers = req |> Request.headers |> Header.to_string in
