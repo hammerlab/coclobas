@@ -307,51 +307,6 @@ module Job = struct
 end
 
 
-module Persist = struct
-
-
-  let of_yojson_error = function
-  | `Ok o -> return o
-  | `Error s -> fail (`Persist (`Of_json s))
-    
-  let save_jsonable st ~path yo =
-    let json = yo |> Yojson.Safe.pretty_to_string ~std:true in
-    Storage.update st path json
-
-  let parse_json_blob ~parse json =
-      Deferred_result.wrap_deferred ~on_exn:(fun e -> `Persist (`Exn e))
-        (fun () -> Lwt.return (Yojson.Safe.from_string json))
-      >>= fun yo ->
-      of_yojson_error (parse yo)
-
-  let get_json st ~path ~parse =
-    Storage.read st path
-    >>= begin function
-    | Some json -> parse_json_blob ~parse json
-    | None -> fail (`Persist (`Missing_data (String.concat ~sep:"/" path)))
-    end
-  
-  let all_job_ids st =
-    Storage.list st ["job"]
-    >>= fun keys ->
-    List.fold ~init:(return []) keys ~f:begin fun prevm k ->
-      prevm >>= fun l ->
-      match k with
-      | "job" :: id :: [] -> return (id :: l)
-      | other -> fail (`Persist (`Inconsistent_job_store (other, keys)))
-    end
-
-  module Error = struct
-    let to_string =
-      function
-      | `Exn _ as gen -> Generic_error.to_string gen
-      | `Of_json s -> sprintf "Persist.of_json: %s" s
-      | `Missing_data s -> sprintf "Persist: missing data: %S" s
-      | `Inconsistent_job_store (k, keys) ->
-        sprintf "Inconsistent-job-store: found Key %S"
-          (String.concat ~sep:"/" k)
-  end
-end
 
 module Error = struct
   let to_string =
@@ -359,8 +314,6 @@ module Error = struct
     function
     | `Shell (cmd, ex) ->
       sprintf "Shell-command failed: %S" cmd
-    | `Persist e ->
-      Persist.Error.to_string e
     | `Storage e -> Storage.Error.to_string e
     | `IO (`Write_file_exn (path, e)) ->
       sprintf "Writing file %S: %s" path (exn e)
