@@ -10,6 +10,9 @@ let return = Deferred_result.return
 let fail = Deferred_result.fail
                
 
+let dbg fmt =
+  ksprintf (fun s -> printf "Cocldebug>> %s\n%!" s) fmt
+
 
 module Generic_error = struct
   let to_string =

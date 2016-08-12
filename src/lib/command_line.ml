@@ -343,15 +343,22 @@ module Server = struct
           | `Error _
           | `Finished _ -> `Remove j :: prev
           | `Submitted -> `Start j :: prev
-          | `Started time when time +. 30. < now () -> prev
+          | `Started time when time +. 30. > now () -> prev
           | `Started _ -> `Update j :: prev
         )
     in
+    dbg "Todo: %f [%s]" (now ())
+      (List.map todo ~f:(function
+         | `Remove j -> sprintf "rm %s" (Job.id j)
+         | `Start j -> sprintf "start %s" (Job.id j)
+         | `Update j -> sprintf "update %s" (Job.id j))
+       |> String.concat ~sep:", ");
     Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
       | `Remove j ->
         t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
         return ()
       | `Start j ->
+        dbg "starting %s" (Job.show j);
         Job.start j
         >>< begin function
         | `Ok () -> 
@@ -362,11 +369,33 @@ module Server = struct
           return ()
         end
       | `Update j ->
-        (* TODO *)
-        return ()
+        dbg "updating %s" (Job.show j);
+        begin
+          Job.get_status_json j
+          >>= fun blob ->
+          Job.Kube_status.of_json blob
+          >>= fun stat ->
+          let open Job.Kube_status in
+          begin match stat with
+          | { phase = `Pending }
+          | { phase = `Unknown }
+          | { phase = `Running } ->
+            j.Job.status <- `Started (now ());
+            return ()
+          | { phase = `Failed }
+          | { phase = `Succeeded } ->
+            j.Job.status <- `Finished (now ());
+            return ()
+          end
+        end >>< begin function
+        | `Ok () -> return ()
+        | `Error e ->
+          j.Job.status <- `Error (Error.to_string e);
+          return ()
+        end
       )
     >>= fun (_ : unit list) ->
-    (Pvem_lwt_unix.System.sleep 2. >>< fun _ -> return ())
+    (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
     >>= fun () ->
     loop t
 

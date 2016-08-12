@@ -43,13 +43,10 @@ let rec curl_status_until_ready acc =
     failf "Curl /status: %s" (String.concat ~sep:"." curl_lines);
   end
 
-let curl_submit_job_01 () =
-  let module Coclojob = Coclobas.Command_line.Job.Specification in
-  let job =
-    Coclojob.fresh
-      ~image:"ubuntu"
-      ["sleep"; "42"]
-  in
+module Coclojob = Coclobas.Command_line.Job.Specification
+
+let curl_submit_job job =
+  let open Lwt in
   let post = Coclojob.to_yojson job |> Yojson.Safe.pretty_to_string ~std:true in
   let process =
     Lwt_process.open_process_in
@@ -57,6 +54,10 @@ let curl_submit_job_01 () =
       (curl ~post "job/submit")
   in
   Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+  >>= fun lines ->
+  test_out "curl_submit_job: %s %s"
+    (Coclojob.show job) (String.concat ~sep:", " lines);
+  return ()
 
 
 let config =
@@ -83,11 +84,13 @@ let () =
         Lwt_unix.sleep 60.
       ]
       >>= fun () ->
-      curl_submit_job_01 ()
-      >>= fun lines ->
-      test_out "curl_submit_job_01: %s" (String.concat ~sep:", " lines);
-      Lwt_unix.sleep 5.
+      curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
       >>= fun () ->
+      curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["du"; "-sh"; "/usr"])
+      >>= fun () ->
+      Lwt_unix.sleep 500.
+      >>= fun () ->
+      test_out "Killing server";
       server_process#kill Sys.sigint;
       server_process#close
       >>= fun _ ->
