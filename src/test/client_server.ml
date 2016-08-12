@@ -57,8 +57,21 @@ let curl_submit_job job =
   >>= fun lines ->
   test_out "curl_submit_job: %s %s"
     (Coclojob.show job) (String.concat ~sep:", " lines);
-  return ()
+  return (job.Coclojob.id)
 
+let curl_get_status ids =
+  let open Lwt in
+  let process =
+    Lwt_process.open_process_in ~stderr:`Dev_null
+      (ksprintf curl "job/status?%s"
+         (List.map ids ~f:(sprintf "id=%s") |> String.concat ~sep:"&"))
+  in
+  Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+  >>= fun lines ->
+  test_out "curl_statuses %s: %s"
+    (String.concat ~sep:", " ids)
+    (String.concat ~sep:"\n" lines);
+  return ()
 
 let config =
   coclobas [
@@ -85,8 +98,13 @@ let () =
       ]
       >>= fun () ->
       curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
-      >>= fun () ->
+      >>= fun sleep_42 ->
       curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["du"; "-sh"; "/usr"])
+      >>= fun du_sh_usr ->
+      curl_get_status [sleep_42; du_sh_usr]
+      >>= fun () ->
+      Lwt_unix.sleep 5. >>= fun () ->
+      curl_get_status [sleep_42; du_sh_usr]
       >>= fun () ->
       Lwt_unix.sleep 500.
       >>= fun () ->
