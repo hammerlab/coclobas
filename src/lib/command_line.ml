@@ -374,13 +374,6 @@ module Persist = struct
   let get_cluster st =
     get_json st ~path:["cluster"] ~parse:Cluster.of_yojson
 
-  (* let save_job_spec st job = *)
-  (*   save_jsonable st (Job.Specification.to_yojson job) *)
-  (*     ~path:["job"; job.Job.Specification.id job; "spec.json"] *)
-
-  (* let get_job st id = *)
-  (*   get_json st ~path:["job"; id; "spec.json"] ~parse:Job.of_yojson *)
-
   let all_job_ids st =
     Storage.list st ["job"]
     >>= fun keys ->
@@ -390,15 +383,6 @@ module Persist = struct
       | "job" :: id :: [] -> return (id :: l)
       | other -> fail (`Persist (`Inconsistent_job_store (other, keys)))
     end
-
-  (* let save_incoming_job st string = *)
-  (*   parse_json_blob ~parse:Job.Specification.of_yojson string *)
-  (*   >>= fun job -> *)
-  (*   save_job_spec st job *)
-  (*   >>= fun () -> *)
-  (*   return job *)
-    (* save_jsonable st (Job.to_yojson job) *)
-    (*   ~path:["incomming-job"; job.Job.id; "spec.json"] *)
 
   module Error = struct
     let to_string =
@@ -439,20 +423,6 @@ module Server = struct
     mutable cluster : Cluster.t;
     mutable jobs: Job.t list;
   } [@@deriving yojson,show,make ] 
-
-  (* let job_loop t handle = *)
-  (*   let rec go () = *)
-  (*     match handle.jstatus with *)
-  (*     | `Submitted -> *)
-  (*       assert false *)
-  (*     | `Started on -> *)
-  (*       assert false *)
-  (*     | `Finished on -> *)
-  (*       assert false *)
-  (*     | `Error s -> *)
-  (*       assert false *)
-  (*   in *)
-  (*   go () *)
 
   let incoming_job t string =
     Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
