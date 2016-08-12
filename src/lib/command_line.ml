@@ -1,5 +1,28 @@
 open Internal_pervasives
 
+module Log = struct
+
+  type stored = {
+    storage: Storage.t;
+  }
+  type t = stored option
+
+  let stored storage : t = Some {storage}
+
+  let log ?(section = ["main"]) t json =
+    match t with
+    | None -> return ()
+    | Some st ->
+      let name =
+        let now = Unix.gettimeofday () in
+        sprintf "%s_%s"
+          (truncate (1000. *. now) |> Int.to_string)
+          (Hashtbl.hash json |> sprintf "%x")
+      in
+      let path = "logs" :: section @ [name ^ ".json"] in
+      Storage.Json.save_jsonable st.storage json ~path
+
+end
 
 module Cluster = struct
   type t = {
@@ -11,7 +34,36 @@ module Cluster = struct
   }
   [@@deriving yojson, show, make]
 
-  let gcloud_start t =
+  let save ~storage:st cluster =
+    Storage.Json.save_jsonable
+      st (to_yojson cluster)
+      ~path:["cluster"; "default"; "definition.json"]
+
+  let get st =
+    Storage.Json.get_json
+      st ~path:["cluster"; "default"; "definition.json"]
+      ~parse:of_yojson
+
+  let command_must_succeed ?log t cmd =
+    Pvem_lwt_unix.System.Shell.execute cmd
+    >>= fun (out, err, ex) ->
+    Log.log log ~section:["cluster"; "command"]
+      (`Assoc [
+        "cluster", to_yojson t;
+        "command", `String cmd;
+        "stdout", `String out;
+        "stderr", `String err;
+        "status", `String (Pvem_lwt_unix.System.Shell.status_to_string ex);
+      ])
+    >>= fun () ->
+    begin match ex with
+    | `Exited 0 -> return ()
+    | `Exited _
+    | `Signaled _
+    | `Stopped _ as e -> fail (`Shell (cmd, e))
+    end
+    
+  let gcloud_start ?log t =
     let cmd =
       sprintf 
         "gcloud container clusters create %s \
@@ -21,27 +73,34 @@ module Cluster = struct
          --enable-autoscaling"
         t.name t.zone t.min_nodes t.min_nodes t.max_nodes t.machine_type
     in
-    Pvem_lwt_unix.System.Shell.do_or_fail cmd
+    command_must_succeed ?log t cmd
 
-  let gcloud_delete t =
+  let gcloud_delete ?log t =
     let cmd =
       sprintf 
         "gcloud container clusters delete --quiet --wait %s --zone %s" t.name t.zone in
-    Pvem_lwt_unix.System.Shell.do_or_fail cmd
+    command_must_succeed ?log t cmd
 
-  let gcloud_describe t =
+  let gcloud_describe ?log t =
     let cmd =
       sprintf 
         "gcloud container clusters describe %s --zone %s" t.name t.zone in
-    Pvem_lwt_unix.System.Shell.do_or_fail cmd
+    command_must_succeed ?log t cmd
 
-  let ensure_living t =
-    gcloud_describe t
+  let gcloud_set_current ?log t =
+    let cmd =
+      sprintf
+        "gcloud container clusters get-credentials %s --zone %s" t.name t.zone in
+    command_must_succeed ?log t cmd
+
+  let ensure_living ?log t =
+    gcloud_describe ?log t
     >>< begin function
-    | `Ok () -> return ()
+    | `Ok () ->
+      gcloud_set_current ?log t
     | `Error (`Shell (_, `Exited 1)) ->
-      gcloud_start t
-    | `Error (`Shell _ as e) ->
+      gcloud_start ?log t
+    | `Error ((`Shell _ | `Storage _) as e) ->
       fail e
     end
 
@@ -118,7 +177,7 @@ module Job = struct
     >>= fun status ->
     return {specification; status}
 
-  let start t =
+  let start ?log t =
     let spec = t.specification in
     let open Specification in
     let requests_json =
@@ -272,12 +331,6 @@ module Persist = struct
     | None -> fail (`Persist (`Missing_data (String.concat ~sep:"/" path)))
     end
   
-  let save_cluster st cluster =
-    save_jsonable st (Cluster.to_yojson cluster) ~path:["cluster"]
-
-  let get_cluster st =
-    get_json st ~path:["cluster"] ~parse:Cluster.of_yojson
-
   let all_job_ids st =
     Storage.list st ["job"]
     >>= fun keys ->
@@ -326,7 +379,9 @@ module Server = struct
     root : string;
     mutable cluster : Cluster.t;
     mutable jobs: Job.t list;
-  } [@@deriving yojson,show,make ] 
+    storage: Storage.t;
+    log: Log.t;
+  } [@@deriving make]
 
   let incoming_job t string =
     Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
@@ -410,7 +465,7 @@ module Server = struct
     loop t
 
   let initialization t =
-    Cluster.ensure_living t.cluster
+    Cluster.ensure_living ?log:t.log t.cluster
     >>= fun () ->
     t.status <- `Ready;
     Lwt.async (fun () -> loop t);
@@ -495,23 +550,25 @@ end
 
 let configure ~root ~cluster =
   let storage = Storage.make root in
-  Persist.save_cluster storage cluster
+  Cluster.save ~storage cluster
 
 let cluster ~root action =
   let storage = Storage.make root in
-  Persist.get_cluster storage
+  Cluster.get storage
   >>= fun cluster ->
+  let log = Log.stored storage in
   begin match action with
-  | `Start -> Cluster.gcloud_start cluster
-  | `Delete -> Cluster.gcloud_delete cluster
-  | `Describe -> Cluster.gcloud_describe cluster
+  | `Start -> Cluster.gcloud_start ?log cluster
+  | `Delete -> Cluster.gcloud_delete ?log cluster
+  | `Describe -> Cluster.gcloud_describe ?log cluster
   end
 
 let start_server ~root ~port =
   let storage = Storage.make root in
-  Persist.get_cluster storage
+  Cluster.get storage
   >>= fun cluster ->
-  let server = Server.make ~root ~cluster ~port () in
+  let log = Log.stored storage in
+  let server = Server.make ~storage ~log ~root ~cluster ~port () in
   Server.start server
 
 

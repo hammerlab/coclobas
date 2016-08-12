@@ -19,3 +19,4 @@ module Generic_error = struct
     function
     | `Exn e -> Printexc.to_string e
 end
+
