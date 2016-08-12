@@ -63,10 +63,36 @@ module Storage = struct
     get_store t msg
     >>= fun s ->
     wrap (fun () -> Store.list s k)
-    
+
+  module Json = struct
+    let of_yojson_error = function
+    | `Ok o -> return o
+    | `Error s -> fail (`Storage (`Of_json s))
+
+    let save_jsonable st ~path yo =
+      let json = yo |> Yojson.Safe.pretty_to_string ~std:true in
+      update st path json
+
+    let parse_json_blob ~parse json =
+      wrap_deferred ~on_exn:(fun e -> `Storage (`Exn e))
+        (fun () -> Lwt.return (Yojson.Safe.from_string json))
+      >>= fun yo ->
+      of_yojson_error (parse yo)
+
+    let get_json st ~path ~parse =
+      read st path
+      >>= begin function
+      | Some json -> parse_json_blob ~parse json
+      | None -> fail (`Storage (`Missing_data (String.concat ~sep:"/" path)))
+      end
+  end
 
   module Error = struct
-    include Generic_error
+    let to_string =
+      function
+      | `Exn _ as e -> Generic_error.to_string e
+      | `Of_json s -> s
+      | `Missing_data s -> sprintf "Missing data: %s" s
   end
 
 end
@@ -105,6 +131,15 @@ module Cluster = struct
         "gcloud container clusters describe %s --zone %s" t.name t.zone in
     Pvem_lwt_unix.System.Shell.do_or_fail cmd
 
+  let ensure_living t =
+    gcloud_describe t
+    >>< begin function
+    | `Ok () -> return ()
+    | `Error (`Shell (_, `Exited 1)) ->
+      gcloud_start t
+    | `Error (`Shell _ as e) ->
+      fail e
+    end
 
 end
 
@@ -126,45 +161,84 @@ module Nfs_mount = struct
 end
 
 module Job = struct
-  type t = {
-    id: string;
-    image: string;
-    command: string list;
-    volume_mounts: [ `Nfs of Nfs_mount.t ] list;
-    memory: [ `GB of int ] [@default `GB 50];
-    cpus: int [@default 7];
-  }
-  [@@deriving yojson, show, make]
+  module Specification = struct
+    type t = {
+      id: string;
+      image: string;
+      command: string list;
+      volume_mounts: [ `Nfs of Nfs_mount.t ] list;
+      memory: [ `GB of int ] [@default `GB 50];
+      cpus: int [@default 7];
+    }
+      [@@deriving yojson, show, make]
 
-  let fresh ~image ?volume_mounts command =
-    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-    make ~id ~image ?volume_mounts ~command ()
+    let fresh ~image ?volume_mounts command =
+      let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
+      make ~id ~image ?volume_mounts ~command ()
+  end
+  module Status = struct
+    type t = [
+      | `Submitted
+      | `Started of float
+      | `Finished of float
+      | `Error of string
+    ] [@@deriving yojson,show ] 
+  end
+
+  type t = {
+    specification: Specification.t [@main];
+    mutable status: Status.t [@default `Submitted];
+  } [@@deriving yojson, show, make]
+
+  let id t = t.specification.Specification.id
+
+  let save st job =
+    Storage.Json.save_jsonable st
+      ~path:["job"; id job; "specification.json"]
+      (Specification.to_yojson job.specification)
+    >>= fun () ->
+    Storage.Json.save_jsonable st
+      ~path:["job"; id job; "status.json"]
+      (Status.to_yojson job.status)
+    
+  let get st job_id =
+    Storage.Json.get_json st
+      ~path:["job"; job_id; "specification.json"]
+      ~parse:Specification.of_yojson
+    >>= fun specification ->
+    Storage.Json.get_json st
+      ~path:["job"; job_id; "status.json"]
+      ~parse:Status.of_yojson
+    >>= fun status ->
+    return {specification; status}
 
   let start t =
+    let spec = t.specification in
+    let open Specification in
     let requests_json =
       `Assoc [
-        "memory", (let `GB gb = t.memory in `String (sprintf "%dG" gb));
-        "cpu", `String (Int.to_string t.cpus);
+        "memory", (let `GB gb = spec.memory in `String (sprintf "%dG" gb));
+        "cpu", `String (Int.to_string spec.cpus);
       ] in
     let json : Yojson.Safe.json =
       `Assoc [
         "kind", `String "Pod";
         "apiVersion", `String "v1";
         "metadata", `Assoc [
-          "name", `String t.id;
+          "name", `String spec.id;
           "labels", `Assoc [
-            "app", `String t.id;
+            "app", `String spec.id;
           ];
         ];
         "spec", `Assoc [
           "restartPolicy", `String "Never";
           "containers", `List [
             `Assoc [
-              "name", `String (t.id ^ "container");
-              "image", `String t.image;
-              "command", `List (List.map t.command ~f:(fun s -> `String s));
+              "name", `String (spec.id ^ "container");
+              "image", `String spec.image;
+              "command", `List (List.map spec.command ~f:(fun s -> `String s));
               "volumeMounts",
-              `List (List.map t.volume_mounts ~f:(fun (`Nfs m) ->
+              `List (List.map spec.volume_mounts ~f:(fun (`Nfs m) ->
                   `Assoc [
                     "name", `String (Nfs_mount.id m);
                     "mountPath", `String (Nfs_mount.point m);
@@ -176,7 +250,7 @@ module Job = struct
             ];
           ];
           "volumes", `List (
-            List.map t.volume_mounts ~f:(fun (`Nfs m) ->
+            List.map spec.volume_mounts ~f:(fun (`Nfs m) ->
                 `Assoc [
                   "name", `String (Nfs_mount.id m);
                   "nfs", `Assoc [
@@ -195,20 +269,24 @@ module Job = struct
     ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "kubectl create -f %s" tmp
 
   let describe t =
+    let spec = t.specification in
+    let open Specification in
     let tmp = Filename.temp_file "coclojob-descr" ".txt" in
-    let cmd = sprintf "kubectl describe pod %s > %s" t.id tmp in
+    let cmd = sprintf "kubectl describe pod %s > %s" spec.id tmp in
     Pvem_lwt_unix.System.Shell.do_or_fail cmd
     >>= fun () ->
     Pvem_lwt_unix.IO.read_file tmp
 
   let get_status_json t =
+    let spec = t.specification in
+    let open Specification in
     let tmp = Filename.temp_file "coclojob-status" ".json" in
     ksprintf Pvem_lwt_unix.System.Shell.do_or_fail
-      "kubectl get pod %s -o=json > %s" t.id tmp
+      "kubectl get pod %s -o=json > %s" spec.id tmp
     >>= fun () ->
     Pvem_lwt_unix.IO.read_file tmp
 
-  module Status = struct
+  module Kube_status = struct
     (* cf. http://kubernetes.io/docs/user-guide/pod-states/ *)
     type t = {
       phase : [ `Pending | `Running | `Succeeded | `Failed | `Unknown ];
@@ -275,14 +353,16 @@ module Persist = struct
     let json = yo |> Yojson.Safe.pretty_to_string ~std:true in
     Storage.update st path json
 
-  let get_json st ~path ~parse =
-    Storage.read st path
-    >>= begin function
-    | Some json ->
+  let parse_json_blob ~parse json =
       wrap_deferred ~on_exn:(fun e -> `Persist (`Exn e))
         (fun () -> Lwt.return (Yojson.Safe.from_string json))
       >>= fun yo ->
       of_yojson_error (parse yo)
+
+  let get_json st ~path ~parse =
+    Storage.read st path
+    >>= begin function
+    | Some json -> parse_json_blob ~parse json
     | None -> fail (`Persist (`Missing_data (String.concat ~sep:"/" path)))
     end
   
@@ -292,11 +372,12 @@ module Persist = struct
   let get_cluster st =
     get_json st ~path:["cluster"] ~parse:Cluster.of_yojson
 
-  let save_job st job =
-    save_jsonable st (Job.to_yojson job) ~path:["job"; job.Job.id; "spec.json"]
+  (* let save_job_spec st job = *)
+  (*   save_jsonable st (Job.Specification.to_yojson job) *)
+  (*     ~path:["job"; job.Job.Specification.id job; "spec.json"] *)
 
-  let get_job st id =
-    get_json st ~path:["job"; id; "spec.json"] ~parse:Job.of_yojson
+  (* let get_job st id = *)
+  (*   get_json st ~path:["job"; id; "spec.json"] ~parse:Job.of_yojson *)
 
   let all_job_ids st =
     Storage.list st ["job"]
@@ -308,6 +389,14 @@ module Persist = struct
       | other -> fail (`Persist (`Inconsistent_job_store (other, keys)))
     end
 
+  (* let save_incoming_job st string = *)
+  (*   parse_json_blob ~parse:Job.Specification.of_yojson string *)
+  (*   >>= fun job -> *)
+  (*   save_job_spec st job *)
+  (*   >>= fun () -> *)
+  (*   return job *)
+    (* save_jsonable st (Job.to_yojson job) *)
+    (*   ~path:["incomming-job"; job.Job.id; "spec.json"] *)
 
   module Error = struct
     let to_string =
@@ -321,6 +410,109 @@ module Persist = struct
   end
 end
 
+module Error = struct
+  let to_string =
+    let exn = Printexc.to_string in
+    function
+    | `Shell (cmd, ex) ->
+      sprintf "Shell-command failed: %S" cmd
+    | `Persist e ->
+      Persist.Error.to_string e
+    | `Storage e -> Storage.Error.to_string e
+    | `IO (`Write_file_exn (path, e)) ->
+      sprintf "Writing file %S: %s" path (exn e)
+    | `IO (`Read_file_exn (path, e)) ->
+      sprintf "Reading file %S: %s" path (exn e)
+    | `Job e -> Job.Error.to_string e
+    | `Start_server (`Exn e) ->
+      sprintf "Starting Cohttp server: %s" (exn e)
+end
+
+module Server = struct
+
+  type t = {
+    port : int;
+    mutable status: [ `Initializing | `Ready ] [@default `Initializing];
+    root : string;
+    mutable cluster : Cluster.t;
+    mutable jobs: Job.t list;
+  } [@@deriving yojson,show,make ] 
+
+  let initialization t =
+    Cluster.ensure_living t.cluster
+    >>= fun () ->
+    t.status <- `Ready;
+    return ()
+
+  (* let job_loop t handle = *)
+  (*   let rec go () = *)
+  (*     match handle.jstatus with *)
+  (*     | `Submitted -> *)
+  (*       assert false *)
+  (*     | `Started on -> *)
+  (*       assert false *)
+  (*     | `Finished on -> *)
+  (*       assert false *)
+  (*     | `Error s -> *)
+  (*       assert false *)
+  (*   in *)
+  (*   go () *)
+
+  let incoming_job t string =
+    Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
+    >>= fun spec ->
+    let job = Job.make spec in
+    t.jobs <- job :: t.jobs;
+    return `Done
+
+
+  let start t =
+    let condition = Lwt_condition.create () in
+    let server_thread () =
+      wrap_deferred ~on_exn:(fun e -> `Start_server (`Exn e)) begin fun () ->
+        let open Cohttp in
+        let open Cohttp_lwt_unix in
+        let open Lwt in
+        let callback _conn req body =
+          let uri = req |> Request.uri in
+          match Uri.path uri with
+          | "/status" ->
+            let body =
+              match t.status with
+              | `Initializing -> "Initializing"
+              | `Ready -> "Ready"
+            in
+            Server.respond_string ~status:`OK ~body ()
+          | "/job/submit" ->
+            body |> Cohttp_lwt_body.to_string
+            >>= fun body_string ->
+            incoming_job t body_string
+            >>= fun result ->
+            begin match result with
+            | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
+            | `Error e ->
+              Server.respond_string
+                ~status:`Bad_request ~body:(Error.to_string e) ()
+            end
+          | other ->
+            let meth = req |> Request.meth |> Code.string_of_method in
+            let headers = req |> Request.headers |> Header.to_string in
+            body |> Cohttp_lwt_body.to_string >|= (fun body ->
+                (Printf.sprintf "Uri: %s\nMethod: %s\nHeaders\nHeaders: %s\nBody: %s"
+                   (Uri.to_string uri) meth headers body))
+            >>= (fun body -> Server.respond_string ~status:`OK ~body ())
+        in
+        Server.create ~mode:(`TCP (`Port t.port)) (Server.make ~callback ())
+        >>= fun () ->
+        Lwt_condition.signal condition (`Ok ());
+        return ()
+      end
+    in
+    Lwt.async server_thread;
+    initialization t
+    >>= fun () ->
+    Lwt_condition.wait condition
+end
 
 
 let configure ~root ~cluster =
@@ -337,36 +529,13 @@ let cluster ~root action =
   | `Describe -> Cluster.gcloud_describe cluster
   end
 
-let server ~port =
-  let open Cohttp in
-  let open Cohttp_lwt_unix in
-  let open Lwt in
-  let callback _conn req body =
-    let uri = req |> Request.uri |> Uri.to_string in
-    let meth = req |> Request.meth |> Code.string_of_method in
-    let headers = req |> Request.headers |> Header.to_string in
-    body |> Cohttp_lwt_body.to_string >|= (fun body ->
-      (Printf.sprintf "Uri: %s\nMethod: %s\nHeaders\nHeaders: %s\nBody: %s"
-         uri meth headers body))
-    >>= (fun body -> Server.respond_string ~status:`OK ~body ())
-  in
-  Server.create ~mode:(`TCP (`Port port)) (Server.make ~callback ())
+let start_server ~root ~port =
+  let storage = Storage.make root in
+  Persist.get_cluster storage
+  >>= fun cluster ->
+  let server = Server.make ~root ~cluster ~port () in
+  Server.start server
 
-module Error = struct
-  let to_string =
-    let exn = Printexc.to_string in
-    function
-    | `Shell (cmd, ex) ->
-      sprintf "Shell-command failed: %S" cmd
-    | `Persist e ->
-      Persist.Error.to_string e
-    | `Storage e -> Storage.Error.to_string e
-    | `IO (`Write_file_exn (path, e)) ->
-      sprintf "Writing file %S: %s" path (exn e)
-    | `IO (`Read_file_exn (path, e)) ->
-      sprintf "Reading file %S: %s" path (exn e)
-    | `Job e -> Job.Error.to_string e
-end
 
 let run_deferred d =
   match Lwt_main.run d with
@@ -387,125 +556,125 @@ let root_term () =
   required_string "root" (fun s -> `Root s)
     ~doc:"The root of the configuration"
 
-let test_job_terms () =
-  let open Cmdliner in
-  let start =
-    let term =
-      let open Term in
-      pure begin fun
-        (`Root root)
-        (`Image image)
-        (`Output_job_id output_job_id)
-        command ->
-        run_deferred begin
-          let job = Job.fresh ~image command in
-          let storage = Storage.make root in
-          Persist.save_job storage job
-          >>= fun () ->
-          printf ">>Job-ID: %s\n%!" job.Job.id;
-          begin match output_job_id with
-          | Some s -> Pvem_lwt_unix.IO.write_file s ~content:job.Job.id
-          | None -> return ()
-          end
-          >>= fun () ->
-          Job.start job
-        end
-      end
-      $ root_term ()
-      $ required_string "image" (fun s -> `Image s)
-        ~doc:"The Docker image to use"
-      $ begin
-        pure (fun s -> `Output_job_id s)
-        $ Arg.(
-            value & opt (some string) None &
-            info ["output-job-id"] ~doc:"Write the JOB-Id to a file")
-      end
-      $ Arg.(
-          value & pos_all string []
-          & info [] ~doc:"The command to run"
-        ) in
-    let info = Term.(info "create-job" ~doc:"Register a job") in
-    (term, info) in
-  let job_cmd cmdname ~doc ~f =
-    let term =
-      let open Term in
-      pure begin fun
-        (`Root root)
-        (`Id id) ->
-        run_deferred begin
-          let storage = Storage.make root in
-          Persist.get_job storage id
-          >>= fun job ->
-          f job
-        end
-      end
-      $ root_term ()
-      $ begin
-        pure (fun s -> `Id s)
-        $ Arg.(required & pos 0 (some string) None
-               & info [] ~doc:"The command to run")
-      end
-    in
-    let info = Term.(info cmdname ~doc) in
-    (term, info) in
-  let all_jobs_cmd cmdname ~doc ~f =
-    let term =
-      let open Term in
-      pure begin fun (`Root root) ->
-        run_deferred begin
-          let storage = Storage.make root in
-          Persist.all_job_ids storage
-          >>= fun jobs ->
-          List.fold jobs ~init:(return ()) ~f:(fun prevm id ->
-              prevm >>= fun () ->
-              Persist.get_job storage id
-              >>= fun job ->
-              f job)
-        end
-      end
-      $ root_term ()
-    in
-    let info = Term.(info cmdname ~doc) in
-    (term, info) in
-  let describe =
-    job_cmd "describe-job" ~doc:"Get the description form Kube" ~f:(fun job ->
-        Job.describe job
-        >>= fun descr ->
-        printf "### DESCRIPTION:\n%s\n%!" descr;
-        return ()) in
-  let status =
-    job_cmd "status-job" ~doc:"Get the status form Kube" ~f:(fun job ->
-        Job.get_status_json job
-        >>= fun blob ->
-        Job.Status.of_json blob
-        >>= fun status ->
-        printf "### STATUS:\n%s\n%!"
-          (Job.Status.to_yojson status |> Yojson.Safe.pretty_to_string ~std:true);
-        return ()) in
-  let show_all =
-    all_jobs_cmd "show-all" ~doc:"Show all jobs" ~f:(fun job ->
-        begin
-          Job.get_status_json job
-          >>= fun blob ->
-          Job.Status.of_json blob
-        end >>< begin function
-        | `Ok status ->
-          printf "Job: %s (%s on %s): %s\n"
-            job.Job.id
-            (String.concat ~sep:" " job.Job.command)
-            job.Job.image
-            (Job.Status.show status);
-          return ()
-        | `Error e ->
-          printf "Job: %s (%s on %s): NO STATUS: %s\n"
-            job.Job.id
-            (String.concat ~sep:" " job.Job.command)
-            job.Job.image
-            (Error.to_string e);
-            return ()
-      end)
-  in
-  [start; describe; status; show_all]
+(* let test_job_terms () = *)
+(*   let open Cmdliner in *)
+(*   let start = *)
+(*     let term = *)
+(*       let open Term in *)
+(*       pure begin fun *)
+(*         (`Root root) *)
+(*         (`Image image) *)
+(*         (`Output_job_id output_job_id) *)
+(*         command -> *)
+(*         run_deferred begin *)
+(*           let job = Job.Specification.fresh ~image command in *)
+(*           let storage = Storage.make root in *)
+(*           Persist.save_job storage job *)
+(*           >>= fun () -> *)
+(*           printf ">>Job-ID: %s\n%!" (Job.id job); *)
+(*           begin match output_job_id with *)
+(*           | Some s -> Pvem_lwt_unix.IO.write_file s ~content:job.Job.id *)
+(*           | None -> return () *)
+(*           end *)
+(*           >>= fun () -> *)
+(*           Job.start job *)
+(*         end *)
+(*       end *)
+(*       $ root_term () *)
+(*       $ required_string "image" (fun s -> `Image s) *)
+(*         ~doc:"The Docker image to use" *)
+(*       $ begin *)
+(*         pure (fun s -> `Output_job_id s) *)
+(*         $ Arg.( *)
+(*             value & opt (some string) None & *)
+(*             info ["output-job-id"] ~doc:"Write the JOB-Id to a file") *)
+(*       end *)
+(*       $ Arg.( *)
+(*           value & pos_all string [] *)
+(*           & info [] ~doc:"The command to run" *)
+(*         ) in *)
+(*     let info = Term.(info "create-job" ~doc:"Register a job") in *)
+(*     (term, info) in *)
+(*   let job_cmd cmdname ~doc ~f = *)
+(*     let term = *)
+(*       let open Term in *)
+(*       pure begin fun *)
+(*         (`Root root) *)
+(*         (`Id id) -> *)
+(*         run_deferred begin *)
+(*           let storage = Storage.make root in *)
+(*           Persist.get_job storage id *)
+(*           >>= fun job -> *)
+(*           f job *)
+(*         end *)
+(*       end *)
+(*       $ root_term () *)
+(*       $ begin *)
+(*         pure (fun s -> `Id s) *)
+(*         $ Arg.(required & pos 0 (some string) None *)
+(*                & info [] ~doc:"The command to run") *)
+(*       end *)
+(*     in *)
+(*     let info = Term.(info cmdname ~doc) in *)
+(*     (term, info) in *)
+(*   let all_jobs_cmd cmdname ~doc ~f = *)
+(*     let term = *)
+(*       let open Term in *)
+(*       pure begin fun (`Root root) -> *)
+(*         run_deferred begin *)
+(*           let storage = Storage.make root in *)
+(*           Persist.all_job_ids storage *)
+(*           >>= fun jobs -> *)
+(*           List.fold jobs ~init:(return ()) ~f:(fun prevm id -> *)
+(*               prevm >>= fun () -> *)
+(*               Persist.get_job storage id *)
+(*               >>= fun job -> *)
+(*               f job) *)
+(*         end *)
+(*       end *)
+(*       $ root_term () *)
+(*     in *)
+(*     let info = Term.(info cmdname ~doc) in *)
+(*     (term, info) in *)
+(*   let describe = *)
+(*     job_cmd "describe-job" ~doc:"Get the description form Kube" ~f:(fun job -> *)
+(*         Job.describe job *)
+(*         >>= fun descr -> *)
+(*         printf "### DESCRIPTION:\n%s\n%!" descr; *)
+(*         return ()) in *)
+(*   let status = *)
+(*     job_cmd "status-job" ~doc:"Get the status form Kube" ~f:(fun job -> *)
+(*         Job.get_status_json job *)
+(*         >>= fun blob -> *)
+(*         Job.Status.of_json blob *)
+(*         >>= fun status -> *)
+(*         printf "### STATUS:\n%s\n%!" *)
+(*           (Job.Status.to_yojson status |> Yojson.Safe.pretty_to_string ~std:true); *)
+(*         return ()) in *)
+(*   let show_all = *)
+(*     all_jobs_cmd "show-all" ~doc:"Show all jobs" ~f:(fun job -> *)
+(*         begin *)
+(*           Job.get_status_json job *)
+(*           >>= fun blob -> *)
+(*           Job.Status.of_json blob *)
+(*         end >>< begin function *)
+(*         | `Ok status -> *)
+(*           printf "Job: %s (%s on %s): %s\n" *)
+(*             job.Job.id *)
+(*             (String.concat ~sep:" " job.Job.command) *)
+(*             job.Job.image *)
+(*             (Job.Status.show status); *)
+(*           return () *)
+(*         | `Error e -> *)
+(*           printf "Job: %s (%s on %s): NO STATUS: %s\n" *)
+(*             job.Job.id *)
+(*             (String.concat ~sep:" " job.Job.command) *)
+(*             job.Job.image *)
+(*             (Error.to_string e); *)
+(*             return () *)
+(*       end) *)
+(*   in *)
+(*   [start; describe; status; show_all] *)
 
 
 let main () =
@@ -576,7 +745,7 @@ let main () =
         (`Root root)
         (`Port port)
         () ->
-        Lwt_main.run (server ~port)
+        run_deferred (start_server ~root ~port)
       end
       $ root_term ()
       $ begin
@@ -601,7 +770,7 @@ let main () =
     ] in
     Term.(ret (pure (`Help (`Plain, None)))),
     Term.info Sys.argv.(0) ~version ~doc ~man in
-  let choices = [cluster; start_server; configure] @ test_job_terms () in
+  let choices = [cluster; start_server; configure] (* @ test_job_terms () *) in
   match Term.eval_choice default_cmd choices with
   | `Ok f -> f
   | `Error _ -> exit 1
