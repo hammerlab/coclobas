@@ -1,101 +1,5 @@
+open Internal_pervasives
 
-open Nonstd
-module String = Sosa.Native_string
-open Pvem_lwt_unix.Deferred_result
-
-
-module Generic_error = struct
-  let to_string =
-    function
-    | `Exn e -> Printexc.to_string e
-end
-
-module Storage = struct
-  module Store =
-    Irmin_unix.Irmin_git.FS
-      (Irmin.Contents.String)
-      (Irmin.Ref.String)
-      (Irmin.Hash.SHA1)
-
-  type t = {
-    root: string;
-    mutable store: (string -> Store.t) option
-  }
-
-  let make root = {root; store = None}
-
-  let wrap lwt = wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn e))
-
-  let init {root; _} =
-    ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "mkdir -p %s" root
-    >>= fun () ->
-    let config = Irmin_unix.Irmin_git.config ~root ~bare:true () in
-    wrap (fun () -> Store.Repo.create config)
-    >>= fun repo ->
-    wrap (fun () -> Store.master Irmin_unix.task repo)
-
-  let get_store t msg =
-    match t.store with
-    | Some f -> return (f msg)
-    | None ->
-      init t
-      >>= fun store ->
-      t.store <- Some store;
-      return (store msg)
-
-  let update t k v =
-    let msg = sprintf "Update /%s" (String.concat ~sep:"/" k) in
-    print_endline msg;
-    get_store t msg
-    >>= fun s ->
-    wrap (fun () -> Store.update s k v)
-
-  let read t k =
-    let msg = sprintf "Read /%s" (String.concat ~sep:"/" k) in
-    print_endline msg;
-    get_store t msg
-    >>= fun s ->
-    wrap (fun () -> Store.read s k)
-
-  let list t k =
-    let msg = sprintf "List /%s" (String.concat ~sep:"/" k) in
-    print_endline msg;
-    get_store t msg
-    >>= fun s ->
-    wrap (fun () -> Store.list s k)
-
-  module Json = struct
-    let of_yojson_error = function
-    | `Ok o -> return o
-    | `Error s -> fail (`Storage (`Of_json s))
-
-    let save_jsonable st ~path yo =
-      let json = yo |> Yojson.Safe.pretty_to_string ~std:true in
-      update st path json
-
-    let parse_json_blob ~parse json =
-      wrap_deferred ~on_exn:(fun e -> `Storage (`Exn e))
-        (fun () -> Lwt.return (Yojson.Safe.from_string json))
-      >>= fun yo ->
-      of_yojson_error (parse yo)
-
-    let get_json st ~path ~parse =
-      read st path
-      >>= begin function
-      | Some json -> parse_json_blob ~parse json
-      | None -> fail (`Storage (`Missing_data (String.concat ~sep:"/" path)))
-      end
-  end
-
-  module Error = struct
-    let to_string =
-      function
-      | `Exn _ as e -> Generic_error.to_string e
-      | `Of_json s -> s
-      | `Missing_data s -> sprintf "Missing data: %s" s
-  end
-
-end
 
 module Cluster = struct
   type t = {
@@ -305,7 +209,7 @@ module Job = struct
       | other -> None
 
     let of_json blob =    
-      wrap_deferred
+      Deferred_result.wrap_deferred
         ~on_exn:(fun e -> `Job (`Kube_json_parsing (blob, `Exn e)))
         (fun () -> Yojson.Safe.from_string blob |> Lwt.return)
       >>= fun json ->
@@ -356,7 +260,7 @@ module Persist = struct
     Storage.update st path json
 
   let parse_json_blob ~parse json =
-      wrap_deferred ~on_exn:(fun e -> `Persist (`Exn e))
+      Deferred_result.wrap_deferred ~on_exn:(fun e -> `Persist (`Exn e))
         (fun () -> Lwt.return (Yojson.Safe.from_string json))
       >>= fun yo ->
       of_yojson_error (parse yo)
@@ -478,44 +382,46 @@ module Server = struct
   let start t =
     let condition = Lwt_condition.create () in
     let server_thread () =
-      wrap_deferred ~on_exn:(fun e -> `Start_server (`Exn e)) begin fun () ->
-        let open Cohttp in
-        let open Cohttp_lwt_unix in
-        let open Lwt in
-        let callback _conn req body =
-          let uri = req |> Request.uri in
-          match Uri.path uri with
-          | "/status" ->
-            let body =
-              match t.status with
-              | `Initializing -> "Initializing"
-              | `Ready -> "Ready"
-            in
-            Server.respond_string ~status:`OK ~body ()
-          | "/job/submit" ->
-            body |> Cohttp_lwt_body.to_string
-            >>= fun body_string ->
-            incoming_job t body_string
-            >>= fun result ->
-            begin match result with
-            | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
-            | `Error e ->
-              Server.respond_string
-                ~status:`Bad_request ~body:(Error.to_string e) ()
-            end
-          | other ->
-            let meth = req |> Request.meth |> Code.string_of_method in
-            let headers = req |> Request.headers |> Header.to_string in
-            body |> Cohttp_lwt_body.to_string >|= (fun body ->
-                (Printf.sprintf "Uri: %s\nMethod: %s\nHeaders\nHeaders: %s\nBody: %s"
-                   (Uri.to_string uri) meth headers body))
-            >>= (fun body -> Server.respond_string ~status:`OK ~body ())
-        in
-        Server.create ~mode:(`TCP (`Port t.port)) (Server.make ~callback ())
-        >>= fun () ->
-        Lwt_condition.signal condition (`Ok ());
-        return ()
-      end
+      Deferred_result.wrap_deferred
+        ~on_exn:(fun e -> `Start_server (`Exn e))
+        begin fun () ->
+          let open Cohttp in
+          let open Cohttp_lwt_unix in
+          let open Lwt in
+          let callback _conn req body =
+            let uri = req |> Request.uri in
+            match Uri.path uri with
+            | "/status" ->
+              let body =
+                match t.status with
+                | `Initializing -> "Initializing"
+                | `Ready -> "Ready"
+              in
+              Server.respond_string ~status:`OK ~body ()
+            | "/job/submit" ->
+              body |> Cohttp_lwt_body.to_string
+              >>= fun body_string ->
+              incoming_job t body_string
+              >>= fun result ->
+              begin match result with
+              | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
+              | `Error e ->
+                Server.respond_string
+                  ~status:`Bad_request ~body:(Error.to_string e) ()
+              end
+            | other ->
+              let meth = req |> Request.meth |> Code.string_of_method in
+              let headers = req |> Request.headers |> Header.to_string in
+              body |> Cohttp_lwt_body.to_string >|= (fun body ->
+                  (Printf.sprintf "Uri: %s\nMethod: %s\nHeaders\nHeaders: %s\nBody: %s"
+                     (Uri.to_string uri) meth headers body))
+              >>= (fun body -> Server.respond_string ~status:`OK ~body ())
+          in
+          Server.create ~mode:(`TCP (`Port t.port)) (Server.make ~callback ())
+          >>= fun () ->
+          Lwt_condition.signal condition (`Ok ());
+          return ()
+        end
     in
     Lwt.async server_thread;
     initialization t
