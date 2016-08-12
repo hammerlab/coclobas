@@ -31,10 +31,16 @@ let app : Project.item =
     ~file:"src/app/main.ml"
     ~internal_deps:[lib]
 
+let test : Project.item =
+  Project.app (project_name ^ "-test")
+    ~thread:()
+    ~file:"src/test/client_server.ml"
+    ~internal_deps:[lib]
+
 let ocamlinit_postfix = [
   sprintf "open %s" (String.capitalize project_name);
 ]
 
 let () =
-  Project.basic1 ~project_name ~version [lib;app]
+  Project.basic1 ~project_name ~version [lib; app; test]
     ~ocamlinit_postfix
