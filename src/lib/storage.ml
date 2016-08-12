@@ -37,21 +37,18 @@ let get_store t msg =
 
 let update t k v =
   let msg = sprintf "Update /%s" (String.concat ~sep:"/" k) in
-  print_endline msg;
   get_store t msg
   >>= fun s ->
   wrap (fun () -> Store.update s k v)
 
 let read t k =
   let msg = sprintf "Read /%s" (String.concat ~sep:"/" k) in
-  print_endline msg;
   get_store t msg
   >>= fun s ->
   wrap (fun () -> Store.read s k)
 
 let list t k =
   let msg = sprintf "List /%s" (String.concat ~sep:"/" k) in
-  print_endline msg;
   get_store t msg
   >>= fun s ->
   wrap (fun () -> Store.list s k)
