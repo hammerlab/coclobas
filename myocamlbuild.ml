@@ -4,6 +4,9 @@ open Solvuu_build.Std
 let project_name = "coclobas"
 let version = "master"
 
+let build_tests =
+  try Sys.getenv "WITH_TESTS" = "true" with _ -> false
+
 let findlib_deps = [
   "nonstd";
   "sosa";
@@ -42,5 +45,5 @@ let ocamlinit_postfix = [
 ]
 
 let () =
-  Project.basic1 ~project_name ~version [lib; app; test]
-    ~ocamlinit_postfix
+  Project.basic1 ~project_name ~version ~ocamlinit_postfix
+    (if build_tests then [lib; app; test] else [lib; app])
