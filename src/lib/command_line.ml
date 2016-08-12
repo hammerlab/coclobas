@@ -192,6 +192,8 @@ module Job = struct
 
   let id t = t.specification.Specification.id
 
+  let status t = t.status
+
   let save st job =
     Storage.Json.save_jsonable st
       ~path:["job"; id job; "specification.json"]
@@ -438,12 +440,6 @@ module Server = struct
     mutable jobs: Job.t list;
   } [@@deriving yojson,show,make ] 
 
-  let initialization t =
-    Cluster.ensure_living t.cluster
-    >>= fun () ->
-    t.status <- `Ready;
-    return ()
-
   (* let job_loop t handle = *)
   (*   let rec go () = *)
   (*     match handle.jstatus with *)
@@ -464,6 +460,49 @@ module Server = struct
     let job = Job.make spec in
     t.jobs <- job :: t.jobs;
     return `Done
+
+  let rec loop t =
+    let now () = Unix.gettimeofday () in
+    let todo =
+      List.fold t.jobs ~init:[] ~f:(fun prev j ->
+          match Job.status j with
+          | `Error _
+          | `Finished _ -> `Remove j :: prev
+          | `Submitted -> `Start j :: prev
+          | `Started time when time +. 30. < now () -> prev
+          | `Started _ -> `Update j :: prev
+        )
+    in
+    Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
+      | `Remove j ->
+        t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
+        return ()
+      | `Start j ->
+        Job.start j
+        >>< begin function
+        | `Ok () -> 
+          j.Job.status <- `Started (now ());
+          return ()
+        | `Error e ->
+          j.Job.status <- `Error (Error.to_string e);
+          return ()
+        end
+      | `Update j ->
+        (* TODO *)
+        return ()
+      )
+    >>= fun (_ : unit list) ->
+    (Pvem_lwt_unix.System.sleep 2. >>< fun _ -> return ())
+    >>= fun () ->
+    loop t
+
+  let initialization t =
+    Cluster.ensure_living t.cluster
+    >>= fun () ->
+    t.status <- `Ready;
+    Lwt.async (fun () -> loop t);
+    return ()
+
 
 
   let start t =
