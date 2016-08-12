@@ -27,7 +27,9 @@ let curl ?post path =
 let rec curl_status_until_ready acc =
   let open Lwt in
   let curl_status =
-    Lwt_process.open_process_in (curl "status") in
+    Lwt_process.open_process_in (curl "status")
+      ~stderr:`Dev_null
+  in
   Lwt_io.read_lines curl_status#stdout |> Lwt_stream.to_list
   >>= fun curl_lines ->
   begin match curl_lines with
@@ -94,7 +96,7 @@ let () =
       >>= fun () ->
       Lwt.pick [
         curl_status_until_ready [];
-        Lwt_unix.sleep 60.
+        Lwt_unix.sleep 120.
       ]
       >>= fun () ->
       curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
