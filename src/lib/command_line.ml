@@ -242,6 +242,12 @@ module Job = struct
     >>= fun () ->
     Pvem_lwt_unix.IO.read_file tmp
 
+  let kill t =
+    let spec = t.specification in
+    let cmd = sprintf "kubectl delete pod %s" spec.Specification.id in
+    Pvem_lwt_unix.System.Shell.do_or_fail cmd
+    
+
   let get_status_json t =
     let spec = t.specification in
     let open Specification in
@@ -357,12 +363,13 @@ module Server = struct
           | `Started _ -> `Update j :: prev
         )
     in
-    dbg "Todo: %f [%s]" (now ())
+    dbg "Todo: %f [%s] of (%d jobs)" (now ())
       (List.map todo ~f:(function
          | `Remove j -> sprintf "rm %s" (Job.id j)
          | `Start j -> sprintf "start %s" (Job.id j)
          | `Update j -> sprintf "update %s" (Job.id j))
-       |> String.concat ~sep:", ");
+       |> String.concat ~sep:", ")
+      (List.length t.jobs);
     Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
       | `Remove j ->
         t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
@@ -435,6 +442,16 @@ module Server = struct
     >>= fun l ->
     return (`Json (`List l))
 
+  let kill_jobs t ids =
+    Deferred_list.while_sequential ids ~f:(fun id ->
+        Job.get (Storage.make t.root) id
+        >>= fun job ->
+        Job.kill job
+        >>= fun () ->
+        return ())
+    >>= fun _ ->
+    return `Done
+
   let respond_result r =
     let open Cohttp in
     let open Cohttp_lwt_unix in
@@ -448,6 +465,10 @@ module Server = struct
       Server.respond_string
         ~status:`Bad_request ~body:(Error.to_string e) ()
     end
+
+  let job_ids_of_uri uri =
+    Uri.query uri
+    |> List.concat_map ~f:(function | ("id", l) -> l | _ -> [])
 
   let start t =
     let condition = Lwt_condition.create () in
@@ -469,12 +490,9 @@ module Server = struct
               in
               Server.respond_string ~status:`OK ~body ()
             | "/job/status" ->
-              let ids =
-                Uri.query uri
-                |> List.concat_map ~f:(function
-                  | ("id", l) -> l
-                  | _ -> []) in
-              get_job_status t ids |> respond_result
+              get_job_status t (job_ids_of_uri uri) |> respond_result
+            | "/job/kill" ->
+              kill_jobs t  (job_ids_of_uri uri) |> respond_result
             | "/job/submit" ->
               body |> Cohttp_lwt_body.to_string
               >>= fun body_string ->
