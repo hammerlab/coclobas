@@ -1,61 +1,5 @@
 open Internal_pervasives
 
-module Log = struct
-
-  type stored = {
-    storage: Storage.t;
-  }
-  type t = stored option
-
-  let stored storage : t = Some {storage}
-
-  let log ?(section = ["main"]) t json =
-    match t with
-    | None -> return ()
-    | Some st ->
-      let name =
-        let now = Unix.gettimeofday () in
-        sprintf "%s_%s"
-          (truncate (1000. *. now) |> Int.to_string)
-          (Hashtbl.hash json |> sprintf "%x")
-      in
-      let path = "logs" :: section @ [name ^ ".json"] in
-      Storage.Json.save_jsonable st.storage json ~path
-
-end
-
-module Hyper_shell = struct
-
-  let command_must_succeed_with_output
-      ?log ?(section = ["shell-commands"])
-      ?(additional_json = [])
-      cmd =
-    Pvem_lwt_unix.System.Shell.execute cmd
-    >>= fun (out, err, ex) ->
-    Log.log log ~section
-      (`Assoc (
-          additional_json
-          @ [
-            "command", `String cmd;
-            "stdout", `String out;
-            "stderr", `String err;
-            "status", `String (Pvem_lwt_unix.System.Shell.status_to_string ex);
-          ]))
-    >>= fun () ->
-    begin match ex with
-    | `Exited 0 -> return (out, err)
-    | `Exited _
-    | `Signaled _
-    | `Stopped _ as e -> fail (`Shell (cmd, e))
-    end
-
-  let command_must_succeed
-      ?log ?section ?additional_json cmd =
-    command_must_succeed_with_output
-      ?log ?section ?additional_json cmd
-    >>= fun (_, _) ->
-    return ()
-end  
 
 module Cluster = struct
   type t = {
@@ -77,14 +21,14 @@ module Cluster = struct
       st ~path:["cluster"; "default"; "definition.json"]
       ~parse:of_yojson
 
-  let command_must_succeed ?log cluster cmd =
-    Hyper_shell.command_must_succeed ?log cmd
+  let command_must_succeed ~log cluster cmd =
+    Hyper_shell.command_must_succeed ~log cmd
       ~section:["cluster"; "commands"]
       ~additional_json:[
         "cluster", to_yojson cluster
       ]
 
-  let gcloud_start ?log t =
+  let gcloud_start ~log t =
     let cmd =
       sprintf 
         "gcloud container clusters create %s \
@@ -94,33 +38,33 @@ module Cluster = struct
          --enable-autoscaling"
         t.name t.zone t.min_nodes t.min_nodes t.max_nodes t.machine_type
     in
-    command_must_succeed ?log t cmd
+    command_must_succeed ~log t cmd
 
-  let gcloud_delete ?log t =
+  let gcloud_delete ~log t =
     let cmd =
       sprintf 
         "gcloud container clusters delete --quiet --wait %s --zone %s" t.name t.zone in
-    command_must_succeed ?log t cmd
+    command_must_succeed ~log t cmd
 
-  let gcloud_describe ?log t =
+  let gcloud_describe ~log t =
     let cmd =
       sprintf 
         "gcloud container clusters describe %s --zone %s" t.name t.zone in
-    command_must_succeed ?log t cmd
+    command_must_succeed ~log t cmd
 
-  let gcloud_set_current ?log t =
+  let gcloud_set_current ~log t =
     let cmd =
       sprintf
         "gcloud container clusters get-credentials %s --zone %s" t.name t.zone in
-    command_must_succeed ?log t cmd
+    command_must_succeed ~log t cmd
 
-  let ensure_living ?log t =
-    gcloud_describe ?log t
+  let ensure_living ~log t =
+    gcloud_describe ~log t
     >>< begin function
     | `Ok () ->
-      gcloud_set_current ?log t
+      gcloud_set_current ~log t
     | `Error (`Shell (_, `Exited 1)) ->
-      gcloud_start ?log t
+      gcloud_start ~log t
     | `Error ((`Shell _ | `Storage _) as e) ->
       fail e
     end
@@ -198,14 +142,14 @@ module Job = struct
     >>= fun status ->
     return {specification; status}
 
-  let command_must_succeed ?log ?additional_json job cmd =
-    Hyper_shell.command_must_succeed ?log cmd ?additional_json
+  let command_must_succeed ~log ?additional_json job cmd =
+    Hyper_shell.command_must_succeed ~log cmd ?additional_json
       ~section:["job"; id job; "commands"]
-  let command_must_succeed_with_output ?log ?additional_json job cmd =
-    Hyper_shell.command_must_succeed_with_output ?log cmd ?additional_json
+  let command_must_succeed_with_output ~log ?additional_json job cmd =
+    Hyper_shell.command_must_succeed_with_output ~log cmd ?additional_json
       ~section:["job"; id job; "commands"]
 
-  let start ?log t =
+  let start ~log t =
     let spec = t.specification in
     let open Specification in
     let requests_json =
@@ -264,23 +208,23 @@ module Job = struct
       "contents", json;
     ] in
     ksprintf
-      (command_must_succeed ~additional_json ?log t)
+      (command_must_succeed ~additional_json ~log t)
       "kubectl create -f %s" tmp
 
-  let describe ?log t =
+  let describe ~log t =
     let cmd = sprintf "kubectl describe pod %s" (id t) in
-    command_must_succeed_with_output ?log t cmd
+    command_must_succeed_with_output ~log t cmd
     >>= fun (out, _) ->
     return out
 
-  let kill ?log t =
+  let kill ~log t =
     let spec = t.specification in
     let cmd = sprintf "kubectl delete pod %s" spec.Specification.id in
-    command_must_succeed ?log t cmd
+    command_must_succeed ~log t cmd
 
-  let get_status_json ?log t =
+  let get_status_json ~log t =
     let cmd = sprintf "kubectl get pod %s -o=json" (id t) in
-    command_must_succeed_with_output ?log t cmd
+    command_must_succeed_with_output ~log t cmd
     >>= fun (out, _) ->
     return out
     (* let spec = t.specification in *)
@@ -444,7 +388,7 @@ module Server = struct
         save_job_list t
       | `Start j ->
         dbg "starting %s" (Job.show j);
-        Job.start ?log:t.log j
+        Job.start ~log:t.log j
         >>< begin function
         | `Ok () -> 
           j.Job.status <- `Started (now ());
@@ -460,7 +404,7 @@ module Server = struct
       | `Update j ->
         dbg "updating %s" (Job.show j);
         begin
-          Job.get_status_json ?log:t.log j
+          Job.get_status_json ~log:t.log j
           >>= fun blob ->
           Job.Kube_status.of_json blob
           >>= fun stat ->
@@ -493,7 +437,7 @@ module Server = struct
     loop t
 
   let initialization t =
-    Cluster.ensure_living ?log:t.log t.cluster
+    Cluster.ensure_living ~log:t.log t.cluster
     >>= fun () ->
     get_job_list t
     >>= fun () ->
@@ -516,7 +460,7 @@ module Server = struct
     Deferred_list.while_sequential ids ~f:(fun id ->
         Job.get (Storage.make t.root) id
         >>= fun job ->
-        Job.kill ?log:t.log job
+        Job.kill ~log:t.log job
         >>= fun () ->
         return ())
     >>= fun _ ->
@@ -599,9 +543,9 @@ let cluster ~root action =
   >>= fun cluster ->
   let log = Log.stored storage in
   begin match action with
-  | `Start -> Cluster.gcloud_start ?log cluster
-  | `Delete -> Cluster.gcloud_delete ?log cluster
-  | `Describe -> Cluster.gcloud_describe ?log cluster
+  | `Start -> Cluster.gcloud_start ~log cluster
+  | `Delete -> Cluster.gcloud_delete ~log cluster
+  | `Describe -> Cluster.gcloud_describe ~log cluster
   end
 
 let start_server ~root ~port =
