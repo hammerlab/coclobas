@@ -75,6 +75,21 @@ let curl_get_status ids =
     (String.concat ~sep:"\n" lines);
   return ()
 
+let curl_get_description ids =
+  let open Lwt in
+  let process =
+    Lwt_process.open_process_in ~stderr:`Dev_null
+      (ksprintf curl "job/describe?%s"
+         (List.map ids ~f:(sprintf "id=%s") |> String.concat ~sep:"&"))
+  in
+  Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+  >>= fun lines ->
+  test_out "curl_descr %s: %s"
+    (String.concat ~sep:", " ids)
+    (String.concat ~sep:"\n" lines);
+  return ()
+
+
 let curl_kill ids =
   let open Lwt in
   let process =
@@ -123,6 +138,9 @@ let () =
       curl_get_status [sleep_42; du_sh_usr]
       >>= fun () ->
       curl_kill [sleep_42]
+      >>= fun () ->
+      Lwt_unix.sleep 5. >>= fun () ->
+      curl_get_description [sleep_42; du_sh_usr]
       >>= fun () ->
       Lwt_unix.sleep 500.
       >>= fun () ->
