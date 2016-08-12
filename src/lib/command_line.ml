@@ -24,6 +24,39 @@ module Log = struct
 
 end
 
+module Hyper_shell = struct
+
+  let command_must_succeed_with_output
+      ?log ?(section = ["shell-commands"])
+      ?(additional_json = [])
+      cmd =
+    Pvem_lwt_unix.System.Shell.execute cmd
+    >>= fun (out, err, ex) ->
+    Log.log log ~section
+      (`Assoc (
+          additional_json
+          @ [
+            "command", `String cmd;
+            "stdout", `String out;
+            "stderr", `String err;
+            "status", `String (Pvem_lwt_unix.System.Shell.status_to_string ex);
+          ]))
+    >>= fun () ->
+    begin match ex with
+    | `Exited 0 -> return (out, err)
+    | `Exited _
+    | `Signaled _
+    | `Stopped _ as e -> fail (`Shell (cmd, e))
+    end
+
+  let command_must_succeed
+      ?log ?section ?additional_json cmd =
+    command_must_succeed_with_output
+      ?log ?section ?additional_json cmd
+    >>= fun (_, _) ->
+    return ()
+end  
+
 module Cluster = struct
   type t = {
     name: string [@main];
@@ -44,25 +77,13 @@ module Cluster = struct
       st ~path:["cluster"; "default"; "definition.json"]
       ~parse:of_yojson
 
-  let command_must_succeed ?log t cmd =
-    Pvem_lwt_unix.System.Shell.execute cmd
-    >>= fun (out, err, ex) ->
-    Log.log log ~section:["cluster"; "command"]
-      (`Assoc [
-        "cluster", to_yojson t;
-        "command", `String cmd;
-        "stdout", `String out;
-        "stderr", `String err;
-        "status", `String (Pvem_lwt_unix.System.Shell.status_to_string ex);
-      ])
-    >>= fun () ->
-    begin match ex with
-    | `Exited 0 -> return ()
-    | `Exited _
-    | `Signaled _
-    | `Stopped _ as e -> fail (`Shell (cmd, e))
-    end
-    
+  let command_must_succeed ?log cluster cmd =
+    Hyper_shell.command_must_succeed ?log cmd
+      ~section:["cluster"; "commands"]
+      ~additional_json:[
+        "cluster", to_yojson cluster
+      ]
+
   let gcloud_start ?log t =
     let cmd =
       sprintf 
@@ -177,6 +198,13 @@ module Job = struct
     >>= fun status ->
     return {specification; status}
 
+  let command_must_succeed ?log ?additional_json job cmd =
+    Hyper_shell.command_must_succeed ?log cmd ?additional_json
+      ~section:["job"; id job; "commands"]
+  let command_must_succeed_with_output ?log ?additional_json job cmd =
+    Hyper_shell.command_must_succeed_with_output ?log cmd ?additional_json
+      ~section:["job"; id job; "commands"]
+
   let start ?log t =
     let spec = t.specification in
     let open Specification in
@@ -231,31 +259,37 @@ module Job = struct
     let tmp = Filename.temp_file "coclojob" ".json" in
     Pvem_lwt_unix.IO.write_file tmp ~content:json_string
     >>= fun () ->
-    ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "kubectl create -f %s" tmp
+    let additional_json = [
+      "temp-file", `String tmp;
+      "contents", json;
+    ] in
+    ksprintf
+      (command_must_succeed ~additional_json ?log t)
+      "kubectl create -f %s" tmp
 
-  let describe t =
-    let spec = t.specification in
-    let open Specification in
-    let tmp = Filename.temp_file "coclojob-descr" ".txt" in
-    let cmd = sprintf "kubectl describe pod %s > %s" spec.id tmp in
-    Pvem_lwt_unix.System.Shell.do_or_fail cmd
-    >>= fun () ->
-    Pvem_lwt_unix.IO.read_file tmp
+  let describe ?log t =
+    let cmd = sprintf "kubectl describe pod %s" (id t) in
+    command_must_succeed_with_output ?log t cmd
+    >>= fun (out, _) ->
+    return out
 
-  let kill t =
+  let kill ?log t =
     let spec = t.specification in
     let cmd = sprintf "kubectl delete pod %s" spec.Specification.id in
-    Pvem_lwt_unix.System.Shell.do_or_fail cmd
-    
+    command_must_succeed ?log t cmd
 
-  let get_status_json t =
-    let spec = t.specification in
-    let open Specification in
-    let tmp = Filename.temp_file "coclojob-status" ".json" in
-    ksprintf Pvem_lwt_unix.System.Shell.do_or_fail
-      "kubectl get pod %s -o=json > %s" spec.id tmp
-    >>= fun () ->
-    Pvem_lwt_unix.IO.read_file tmp
+  let get_status_json ?log t =
+    let cmd = sprintf "kubectl get pod %s -o=json" (id t) in
+    command_must_succeed_with_output ?log t cmd
+    >>= fun (out, _) ->
+    return out
+    (* let spec = t.specification in *)
+    (* let open Specification in *)
+    (* let tmp = Filename.temp_file "coclojob-status" ".json" in *)
+    (* ksprintf Pvem_lwt_unix.System.Shell.do_or_fail *)
+    (*   "kubectl get pod %s -o=json > %s" spec.id tmp *)
+    (* >>= fun () -> *)
+    (* Pvem_lwt_unix.IO.read_file tmp *)
 
   module Kube_status = struct
     (* cf. http://kubernetes.io/docs/user-guide/pod-states/ *)
@@ -376,7 +410,7 @@ module Server = struct
         return ()
       | `Start j ->
         dbg "starting %s" (Job.show j);
-        Job.start j
+        Job.start ?log:t.log j
         >>< begin function
         | `Ok () -> 
           j.Job.status <- `Started (now ());
@@ -392,7 +426,7 @@ module Server = struct
       | `Update j ->
         dbg "updating %s" (Job.show j);
         begin
-          Job.get_status_json j
+          Job.get_status_json ?log:t.log j
           >>= fun blob ->
           Job.Kube_status.of_json blob
           >>= fun stat ->
@@ -446,7 +480,7 @@ module Server = struct
     Deferred_list.while_sequential ids ~f:(fun id ->
         Job.get (Storage.make t.root) id
         >>= fun job ->
-        Job.kill job
+        Job.kill ?log:t.log job
         >>= fun () ->
         return ())
     >>= fun _ ->
