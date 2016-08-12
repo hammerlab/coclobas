@@ -376,6 +376,38 @@ module Server = struct
     log: Log.t;
   } [@@deriving make]
 
+
+  let save_job_list t =
+    Storage.Json.save_jsonable t.storage
+      ~path:["server"; "jobs.json"]
+      (`List (List.map t.jobs ~f:(fun j -> `String (Job.id j))))
+
+  let get_job_list t =
+    let parse =
+      let open Pvem.Result in
+      function
+      | `List l ->
+        List.fold ~init:(return []) l ~f:(fun prev j ->
+            prev >>= fun l ->
+            match j with
+            | `String s -> return (s :: l)
+            | other -> fail "expecting List of Strings")
+      | other -> fail "expecting List (of Strings)"
+    in
+    begin
+      Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse
+      >>< function
+      | `Ok ids -> return ids
+      | `Error (`Storage (`Missing_data md)) -> return []
+      | `Error other -> fail other
+    end
+    >>= fun ids ->
+    Deferred_list.while_sequential ids ~f:(fun id ->
+        Job.get t.storage id)
+    >>= fun jobs ->
+    t.jobs <- jobs;
+    return ()
+
   let incoming_job t string =
     Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
     >>= fun spec ->
@@ -383,6 +415,8 @@ module Server = struct
     Job.save (Storage.make t.root) job
     >>= fun () ->
     t.jobs <- job :: t.jobs;
+    save_job_list t
+    >>= fun () ->
     return `Done
 
   let rec loop t =
@@ -407,7 +441,7 @@ module Server = struct
     Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
       | `Remove j ->
         t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
-        return ()
+        save_job_list t
       | `Start j ->
         dbg "starting %s" (Job.show j);
         Job.start ?log:t.log j
@@ -460,6 +494,8 @@ module Server = struct
 
   let initialization t =
     Cluster.ensure_living ?log:t.log t.cluster
+    >>= fun () ->
+    get_job_list t
     >>= fun () ->
     t.status <- `Ready;
     Lwt.async (fun () -> loop t);
