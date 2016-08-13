@@ -112,6 +112,28 @@ let config =
     "--max-nodes"; "5";
   ]
 
+let job_with_nfs () =
+  begin try
+    let mount, witness =
+      Sys.getenv "VALID_NFS_MOUNT"
+      |> String.split ~on:(`Character ',')
+      |> function
+      | host :: path :: witness :: point :: [] ->
+        Coclojob.Nfs_mount.make
+          ~host ~path ~point (),
+        sprintf "%s/%s" point witness
+      | _ -> failwith "can't parse"
+    in
+    Some (
+      Coclojob.fresh
+        ~image:"ubuntu"
+        ~volume_mounts:[`Nfs mount]
+        ["ls"; "-la"; witness]
+    )
+  with _ -> None
+  end
+
+
 let () =
   Lwt_main.run Lwt.(
       let conf = Lwt_process.open_process_none config in
@@ -121,11 +143,12 @@ let () =
         Lwt_process.open_process_none
           (coclobas ["start-server"; "--root"; root; "--port"; port])
       in
-      Lwt_unix.sleep 1.
-      >>= fun () ->
+      test_out "Server started";
+      (* Lwt_unix.sleep 1. *)
+      (* >>= fun () -> *)
       Lwt.pick [
         curl_status_until_ready [];
-        Lwt_unix.sleep 120.
+        Lwt_unix.sleep 12.
       ]
       >>= fun () ->
       curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
@@ -141,6 +164,17 @@ let () =
       >>= fun () ->
       Lwt_unix.sleep 5. >>= fun () ->
       curl_get_description [sleep_42; du_sh_usr]
+      >>= fun () ->
+      Option.value_map ~default:(return ()) (job_with_nfs ())
+        ~f:begin fun job ->
+          curl_submit_job job
+          >>= fun id ->
+          curl_get_status [id]
+          >>= fun () ->
+          Lwt_unix.sleep 5.
+          >>= fun () ->
+          curl_get_status [id]
+        end
       >>= fun () ->
       Lwt_unix.sleep 500.
       >>= fun () ->
