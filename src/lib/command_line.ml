@@ -71,25 +71,24 @@ module Cluster = struct
 
 end
 
-module Nfs_mount = struct
-  type t = {
-    host: string;
-    path: string;
-    point: string;
-    read_only: bool [@default false];
-  }
-  [@@deriving yojson, show, make]
-
-  let id m = Hashtbl.hash m |> sprintf "%s-%x" m.host
-  let point m = m.point
-  let host m = m.host
-  let path m = m.path
-  let point m = m.point
-  let read_only m = m.read_only
-end
 
 module Job = struct
   module Specification = struct
+    module Nfs_mount = struct
+      type t = {
+        host: string;
+        path: string;
+        point: string;
+        read_only: bool [@default false];
+      }
+        [@@deriving yojson, show, make]
+      let id m = Hashtbl.hash m |> sprintf "%s-%x" m.host
+      let point m = m.point
+      let host m = m.host
+      let path m = m.path
+      let point m = m.point
+      let read_only m = m.read_only
+    end
     type t = {
       id: string;
       image: string;
