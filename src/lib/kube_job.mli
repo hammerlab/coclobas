@@ -44,11 +44,12 @@ module Specification : sig
 end
 
 module Status : sig
-  type t =
-    [ `Error of string
-    | `Finished of float
+  type t = [
+    | `Error of string
+    | `Finished of float * [ `Failed | `Succeeded ]
     | `Started of float
-    | `Submitted ]
+    | `Submitted
+  ]
   val to_yojson : t -> Yojson.Safe.json
   val of_yojson : Yojson.Safe.json -> [ `Error of string | `Ok of t ]
 

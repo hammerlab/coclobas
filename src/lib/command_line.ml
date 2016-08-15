@@ -130,9 +130,8 @@ module Server = struct
             Job.save (Storage.make t.root) j
             >>= fun () ->
             return ()
-          | { phase = `Failed }
-          | { phase = `Succeeded } ->
-            j.Job.status <- `Finished (now ());
+          | { phase = (`Failed | `Succeeded as phase)} ->
+            j.Job.status <- `Finished (now (), phase);
             Job.save (Storage.make t.root) j
             >>= fun () ->
             return ()
