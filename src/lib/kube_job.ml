@@ -23,8 +23,9 @@ module Specification = struct
     volume_mounts: [ `Nfs of Nfs_mount.t ] list;
     memory: [ `GB of int ] [@default `GB 50];
     cpus: int [@default 7];
-  }
-    [@@deriving yojson, show, make]
+  } [@@deriving yojson, show, make]
+
+  let id t = t.id
 
   let fresh ~image ?volume_mounts command =
     let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in

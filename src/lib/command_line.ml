@@ -260,7 +260,6 @@ module Server = struct
     Lwt_condition.wait condition
 end
 
-
 let configure ~root ~cluster =
   let storage = Storage.make root in
   Cluster.save ~storage cluster

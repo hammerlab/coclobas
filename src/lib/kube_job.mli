@@ -26,11 +26,9 @@ module Specification : sig
     volume_mounts : [ `Nfs of Nfs_mount.t ] list;
     memory : [ `GB of int ];
     cpus : int;
-  }
-  val to_yojson : t -> Yojson.Safe.json
-  val of_yojson : Yojson.Safe.json -> [ `Error of string | `Ok of t ]
-  val show : t -> Ppx_deriving_runtime.string
+  }[@@deriving yojson, show, make]
 
+  val id : t -> string
   val make :
     id:string ->
     image:string ->
