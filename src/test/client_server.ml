@@ -144,8 +144,8 @@ let () =
           (coclobas ["start-server"; "--root"; root; "--port"; port])
       in
       test_out "Server started";
-      (* Lwt_unix.sleep 1. *)
-      (* >>= fun () -> *)
+      Lwt_unix.sleep 1.
+      >>= fun () ->
       Lwt.pick [
         curl_status_until_ready [];
         Lwt_unix.sleep 12.
