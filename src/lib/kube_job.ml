@@ -118,16 +118,6 @@ let start ~log t =
       @ [
         `Assoc [
           "apiVersion", `String "v1";
-          "kind", `String "Secret";
-          "metadata", `Assoc [
-            "name", `String (spec.id ^ "-secret")
-          ];
-          "data", `Assoc [
-            "secret-file", `String "dmFsdWUtMg0KDQo=";
-          ];
-        ];
-        `Assoc [
-          "apiVersion", `String "v1";
           "kind", `String "Pod";
           "metadata", `Assoc [
             "name", `String spec.id;
@@ -144,11 +134,6 @@ let start ~log t =
                 "command", `List (List.map spec.command ~f:(fun s -> `String s));
                 "volumeMounts",
                 `List (
-                  `Assoc [
-                    "name", `String (spec.id ^ "-secret" ^ "-volume");
-                    "readOnly", `Bool true;
-                    "mountPath", `String "/etc/secrets/";
-                  ] ::
                   List.map spec.volume_mounts ~f:(function
                     | `Constant f ->
                       `Assoc [
@@ -169,12 +154,6 @@ let start ~log t =
               ];
             ];
             "volumes", `List (
-              `Assoc [
-                "name", `String (spec.id ^ "-secret" ^ "-volume");
-                "secret", `Assoc [
-                  "secretName",  `String (spec.id ^ "-secret");
-                ]
-              ] ::
               List.map spec.volume_mounts ~f:(function
                 | `Constant f ->
                   `Assoc [
@@ -238,13 +217,6 @@ let get_status_json ~log t =
   command_must_succeed_with_output ~log t cmd
   >>= fun (out, _) ->
   return out
-(* let spec = t.specification in *)
-(* let open Specification in *)
-(* let tmp = Filename.temp_file "coclojob-status" ".json" in *)
-(* ksprintf Pvem_lwt_unix.System.Shell.do_or_fail *)
-(*   "kubectl get pod %s -o=json > %s" spec.id tmp *)
-(* >>= fun () -> *)
-(* Pvem_lwt_unix.IO.read_file tmp *)
 
 module Kube_status = struct
   (* cf. http://kubernetes.io/docs/user-guide/pod-states/ *)
