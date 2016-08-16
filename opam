@@ -20,9 +20,9 @@ install: [
 remove: []
 
 depends: [
-  "ocamlfind"
-  "ocamlbuild"
-  "solvuu-build"
+  "ocamlfind" {build}
+  "ocamlbuild" {build}
+  "solvuu-build" {build}
   "nonstd"
   "sosa"
   "pvem_lwt_unix"
@@ -32,6 +32,7 @@ depends: [
   "ppx_deriving"
   "ppx_deriving_yojson"
   "uuidm"
+  "base64"
 ]
 depopts: [
   "ketrew"
