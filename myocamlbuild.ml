@@ -18,6 +18,7 @@ let findlib_deps = [
   "ppx_deriving.std";
   "ppx_deriving_yojson";
   "uuidm";
+  "base64";
 ]
 
 let lib : Project.item =

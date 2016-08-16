@@ -32,6 +32,7 @@ depends: [
   "ppx_deriving"
   "ppx_deriving_yojson"
   "uuidm"
+  "base64"
 ]
 depopts: [
   "ketrew"
