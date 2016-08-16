@@ -144,6 +144,13 @@ let describe ~log t =
   >>= fun (out, _) ->
   return out
 
+let get_logs ~log t =
+  let cmd = sprintf "kubectl logs %s" (id t) in
+  command_must_succeed_with_output ~log t cmd
+  >>= fun (out, err) ->
+  return (out, err)
+
+
 let kill ~log t =
   let spec = t.specification in
   let cmd = sprintf "kubectl delete pod %s" spec.Specification.id in
