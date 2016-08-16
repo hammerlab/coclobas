@@ -75,6 +75,12 @@ let get_kube_job_descriptions t ids =
       | `String s -> `Ok s
       | other -> `Error "Expecting a string (job describption)")
 
+let get_kube_job_logs t ids =
+  get_kube_job_jsons t ~path:"job/logs" ~ids ~json_key:"output"
+    ~of_yojson:(function
+      | `String s -> `Ok s
+      | other -> `Error "Expecting a string (job logs dump)")
+
 let kill_kube_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/status" ids in
   do_get uri
