@@ -25,6 +25,26 @@ end
 let create ~base_url spec = 
   `Long_running (name, `Created (Client.make base_url, spec) |> Run_parameters.serialize)
 
+let run_program ~base_url ~image ?(volume_mounts = []) p =
+  let script_path = "/coclo-kube/mount/script" in
+  let script =
+    Kube_job.Specification.File_contents_mount.fresh
+      ~path:script_path
+      Ketrew_pure.Monitored_script.(
+        create p
+          ~playground:(Ketrew_pure.Path.absolute_directory_exn
+                         "/cloco-kube/playground")
+        |> to_string
+      ) in
+  let spec =
+    Kube_job.Specification.fresh
+      ~image
+      ~volume_mounts:(`Constant script :: volume_mounts)
+      ["bash"; script_path]
+  in
+  create ~base_url spec
+
+
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 
   type run_parameters = Run_parameters.t
