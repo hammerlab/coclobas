@@ -25,7 +25,7 @@ let lib : Project.item =
     ~thread:()
     ~findlib_deps
     ~dir:"src/lib"
-    ~pack_name:project_name
+    ~style:(`Pack project_name)
     ~pkg:project_name
 
 let ketrew_backend : Project.item option =
@@ -34,7 +34,7 @@ let ketrew_backend : Project.item option =
       ~thread:()
       ~findlib_deps:("ketrew" :: findlib_deps)
       ~dir:"src/ketrew_backend"
-      ~pack_name:(project_name ^ "_ketrew_backend")
+      ~style:(`Pack (project_name ^ "_ketrew_backend"))
       ~internal_deps:[lib]
       ~pkg:(project_name ^ ".ketrew_backend")
   in
