@@ -139,7 +139,25 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
     fun rp ->
       let open Ketrew_pure.Internal_pervasives.Log in
-      ["display", s "Display the contents of the run-parameters"]
+      let common = [
+        "display", s "Display the contents of the run-parameters";
+        "server-status", s "Get the server status";
+      ] in
+      match rp with
+      | `Created c -> common
+      | `Running c ->
+        (
+          ("job-status", s "Get the “raw” job status")
+          :: ("kubectl-describe", s "Get the `describe` blob from Kubernetes")
+          :: common
+        )
+
+
+  let client_query m =
+    m >>< function
+    | `Ok o -> return o
+    | `Error (`Client ce) ->
+      fail (Ketrew_pure.Internal_pervasives.Log.verbatim (Client.Error.to_string ce))
 
   let query :
     run_parameters ->
@@ -148,6 +166,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     (string, Ketrew_pure.Internal_pervasives.Log.t) Deferred_result.t =
     fun rp ~host_io query ->
       let open Ketrew_pure.Internal_pervasives.Log in
+      let (`Created (client, jobspec) | `Running (client, jobspec)) = rp in
       match query with
       | "display" ->
         return (
@@ -158,6 +177,34 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                 (to_long_string v))
           |> String.concat ~sep:"\n"
         )
+      | "server-status" ->
+        client_query begin
+          Coclobas.Client.get_server_status_string client
+        end
+      | "job-status" ->
+        client_query begin
+          Client.get_kube_job_statuses client
+            [Kube_job.Specification.id jobspec]
+          >>= fun l ->
+          let rendered =
+            List.map l ~f:(fun (id, s) ->
+                sprintf "* %s: %s" id (Kube_job.Status.show s))
+            |> String.concat ~sep:"\n"
+          in
+          return rendered
+        end
+      | "kubectl-describe" ->
+        client_query begin
+          Client.get_kube_job_descriptions client
+            [Kube_job.Specification.id jobspec]
+          >>= fun l ->
+          let rendered =
+            List.map l ~f:(fun (id, s) ->
+                sprintf "### Kube-Job %s\n\n%s" id  s)
+            |> String.concat ~sep:"\n"
+          in
+          return rendered
+        end
       | other -> fail (s "Unknown query: " % s other)
 
 end
