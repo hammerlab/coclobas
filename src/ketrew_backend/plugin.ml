@@ -139,7 +139,16 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
     fun rp ->
       let open Ketrew_pure.Internal_pervasives.Log in
-      ["display", s "Display the contents of the run-parameters"]
+      [
+        "display", s "Display the contents of the run-parameters";
+        "server-status", s "Get the server status";
+      ]
+
+  let client_query m =
+    m >>< function
+    | `Ok o -> return o
+    | `Error (`Client ce) ->
+      fail (Ketrew_pure.Internal_pervasives.Log.verbatim (Client.Error.to_string ce))
 
   let query :
     run_parameters ->
@@ -158,6 +167,11 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                 (to_long_string v))
           |> String.concat ~sep:"\n"
         )
+      | "server-status" ->
+        let (`Created (client, _) | `Running (client, _)) = rp in
+        client_query begin
+          Coclobas.Client.get_server_status_string client
+        end
       | other -> fail (s "Unknown query: " % s other)
 
 end

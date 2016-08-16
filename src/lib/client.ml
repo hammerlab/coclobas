@@ -72,7 +72,14 @@ let kill_kube_jobs {base_url} ids =
   do_get uri
   >>= fun (resp, body) ->
   response_is_ok resp ~meth:`Get ~uri
-  
+
+let get_server_status_string {base_url} =
+  let uri = Uri.with_path (Uri.of_string base_url) "status" in
+  do_get uri
+  >>= fun (resp, body) ->
+  response_is_ok resp ~meth:`Get ~uri
+  >>= fun () ->
+  return body
 
 module Error = struct
   let to_string =
