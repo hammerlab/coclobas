@@ -148,6 +148,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Running c ->
         (
           ("job-status", s "Get the “raw” job status")
+          :: ("kubectl-describe", s "Get the `describe` blob from Kubernetes")
           :: common
         )
 
@@ -188,6 +189,18 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           let rendered =
             List.map l ~f:(fun (id, s) ->
                 sprintf "* %s: %s" id (Kube_job.Status.show s))
+            |> String.concat ~sep:"\n"
+          in
+          return rendered
+        end
+      | "kubectl-describe" ->
+        client_query begin
+          Client.get_kube_job_descriptions client
+            [Kube_job.Specification.id jobspec]
+          >>= fun l ->
+          let rendered =
+            List.map l ~f:(fun (id, s) ->
+                sprintf "### Kube-Job %s\n\n%s" id  s)
             |> String.concat ~sep:"\n"
           in
           return rendered

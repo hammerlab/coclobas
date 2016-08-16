@@ -43,8 +43,8 @@ let submit_kube_job {base_url} spec =
   >>= fun (resp, body) ->
   response_is_ok  resp ~meth:`Post ~uri
 
-let get_kube_job_statuses {base_url} ids =
-  let uri = uri_of_ids base_url "job/status" ids in
+let get_kube_job_jsons {base_url} ~path ~ids ~json_key ~of_yojson =
+  let uri = uri_of_ids base_url path ids in
   do_get uri
   >>= fun (resp, body) ->
   response_is_ok resp ~meth:`Get ~uri
@@ -54,9 +54,9 @@ let get_kube_job_statuses {base_url} ids =
   begin match json with
   | `List l ->
     Deferred_list.while_sequential l ~f:(function
-      | `Assoc ["id", `String id; "status", stjson] ->
+      | `Assoc ["id", `String id; key, stjson] when key = json_key ->
         wrap_parsing Lwt.(fun () ->
-            match Kube_job.Status.of_yojson stjson with
+            match of_yojson stjson with
             | `Ok s -> return (id, s)
             | `Error e -> fail (Failure e)
           )
@@ -64,6 +64,16 @@ let get_kube_job_statuses {base_url} ids =
       )
   | other -> fail (`Client (`Json_parsing (uri, other)))
   end
+
+let get_kube_job_statuses t ids =
+  get_kube_job_jsons t ~path:"job/status" ~ids ~json_key:"status"
+    ~of_yojson:Kube_job.Status.of_yojson
+
+let get_kube_job_descriptions t ids =
+  get_kube_job_jsons t ~path:"job/describe" ~ids ~json_key:"description"
+    ~of_yojson:(function
+      | `String s -> `Ok s
+      | other -> `Error "Expecting a string (job describption)")
 
 let kill_kube_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/status" ids in
