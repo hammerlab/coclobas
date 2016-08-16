@@ -47,24 +47,22 @@ let get_kube_job_statuses {base_url} ids =
   let uri = uri_of_ids base_url "job/status" ids in
   do_get uri
   >>= fun (resp, body) ->
-  begin match Cohttp.Response.status resp with
-  | `OK ->
-    wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
-    >>= fun json ->
-    begin match json with
-    | `List l ->
-      Deferred_list.while_sequential l ~f:(function
-        | `Assoc ["id", `String id; "status", stjson] ->
-          wrap_parsing Lwt.(fun () ->
-              match Kube_job.Status.of_yojson stjson with
-              | `Ok s -> return (id, s)
-              | `Error e -> fail (Failure e)
-            )
-        | other -> fail (`Client (`Json_parsing (uri, other)))
-        )
-    | other -> fail (`Client (`Json_parsing (uri, other)))
-    end
-  | other -> fail (`Client (`Response (`Post, uri, resp)))
+  response_is_ok resp ~meth:`Get ~uri
+  >>= fun () ->
+  wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
+  >>= fun json ->
+  begin match json with
+  | `List l ->
+    Deferred_list.while_sequential l ~f:(function
+      | `Assoc ["id", `String id; "status", stjson] ->
+        wrap_parsing Lwt.(fun () ->
+            match Kube_job.Status.of_yojson stjson with
+            | `Ok s -> return (id, s)
+            | `Error e -> fail (Failure e)
+          )
+      | other -> fail (`Client (`Json_parsing (uri, other)))
+      )
+  | other -> fail (`Client (`Json_parsing (uri, other)))
   end
 
 let kill_kube_jobs {base_url} ids =
