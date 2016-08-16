@@ -20,9 +20,9 @@ install: [
 remove: []
 
 depends: [
-  "ocamlfind"
-  "ocamlbuild"
-  "solvuu-build"
+  "ocamlfind" {build}
+  "ocamlbuild" {build}
+  "solvuu-build" {build}
   "nonstd"
   "sosa"
   "pvem_lwt_unix"
