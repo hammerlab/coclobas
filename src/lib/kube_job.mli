@@ -126,6 +126,15 @@ val kill :
         | `Stopped of int ]
    | `Storage of [> `Exn of exn ] ]) Deferred_result.t
 
+val get_logs:
+  log:Log.t ->
+  t ->
+  (string * string,
+   [> `Shell of
+        string *
+        [> `Exited of int | `Exn of exn | `Signaled of int | `Stopped of int ]
+   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+
 val get_status_json :
   log:Log.t ->
   t ->
