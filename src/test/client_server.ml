@@ -17,9 +17,12 @@ let command ~bin args : Lwt_process.command =
 let coclobas args : Lwt_process.command =
   command ~bin:"./coclobas.byte" args
 
+let make_url path =
+  sprintf "http://localhost:%s/%s" port path
+
 let curl ?post path =
   command ~bin:"curl" (
-    [sprintf "http://localhost:%s/%s" port path]
+    [make_url path]
     @ Option.value_map ~default:[] post ~f:(fun d ->
         ["--data-binary"; d])
   )
@@ -47,30 +50,59 @@ let rec curl_status_until_ready acc =
 
 module Coclojob = Coclobas.Command_line.Job.Specification
 
-let curl_submit_job job =
+let submit_job how job =
   let open Lwt in
-  let post = Coclojob.to_yojson job |> Yojson.Safe.pretty_to_string ~std:true in
-  let process =
-    Lwt_process.open_process_in
-      ~stderr:`Dev_null
-      (curl ~post "job/submit")
-  in
-  Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
-  >>= fun lines ->
-  test_out "curl_submit_job: %s %s"
-    (Coclojob.show job) (String.concat ~sep:", " lines);
-  return (job.Coclojob.id)
+  match how with
+  | `Curl ->
+    let post = Coclojob.to_yojson job |> Yojson.Safe.pretty_to_string ~std:true in
+    let process =
+      Lwt_process.open_process_in
+        ~stderr:`Dev_null
+        (curl ~post "job/submit")
+    in
+    Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+    >>= fun lines ->
+    test_out "curl_submit_job: %s %s"
+      (Coclojob.show job) (String.concat ~sep:", " lines);
+    return (job.Coclojob.id)
+  | `Client ->
+    Coclobas.Client.(
+      submit_kube_job
+        (make (make_url ""))
+        job
+      >>= fun res ->
+      match res with
+      | `Ok () -> return (job.Coclojob.id)
+      | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
+    )
 
-let curl_get_status ids =
+let curl_submit_job job = submit_job `Curl job
+
+let get_status how ids =
   let open Lwt in
-  let process =
-    Lwt_process.open_process_in ~stderr:`Dev_null
-      (ksprintf curl "job/status?%s"
-         (List.map ids ~f:(sprintf "id=%s") |> String.concat ~sep:"&"))
-  in
-  Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+  begin match how with
+  | `Curl ->
+    let process =
+      Lwt_process.open_process_in ~stderr:`Dev_null
+        (ksprintf curl "job/status?%s"
+           (List.map ids ~f:(sprintf "id=%s") |> String.concat ~sep:"&"))
+    in
+    Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
+  | `Client ->
+    Coclobas.Client.(
+      get_kube_job_statuses
+        (make (make_url ""))
+        ids
+      >>= fun res ->
+      match res with
+      | `Ok stats ->
+        return (List.map stats ~f:(fun (id, st) ->
+            sprintf "%s: %s" id (Coclobas.Kube_job.Status.show st)))
+      | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
+    )
+  end
   >>= fun lines ->
-  test_out "curl_statuses %s: %s"
+  test_out "get_statuses %s: %s"
     (String.concat ~sep:", " ids)
     (String.concat ~sep:"\n" lines);
   return ()
@@ -144,8 +176,8 @@ let () =
           (coclobas ["start-server"; "--root"; root; "--port"; port])
       in
       test_out "Server started";
-      (* Lwt_unix.sleep 1. *)
-      (* >>= fun () -> *)
+      Lwt_unix.sleep 1.
+      >>= fun () ->
       Lwt.pick [
         curl_status_until_ready [];
         Lwt_unix.sleep 12.
@@ -153,12 +185,12 @@ let () =
       >>= fun () ->
       curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
       >>= fun sleep_42 ->
-      curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["du"; "-sh"; "/usr"])
+      submit_job `Client (Coclojob.fresh ~image:"ubuntu" ["du"; "-sh"; "/usr"])
       >>= fun du_sh_usr ->
-      curl_get_status [sleep_42; du_sh_usr]
+      get_status `Curl [sleep_42; du_sh_usr]
       >>= fun () ->
       Lwt_unix.sleep 5. >>= fun () ->
-      curl_get_status [sleep_42; du_sh_usr]
+      get_status `Client [sleep_42; du_sh_usr]
       >>= fun () ->
       curl_kill [sleep_42]
       >>= fun () ->
@@ -169,11 +201,11 @@ let () =
         ~f:begin fun job ->
           curl_submit_job job
           >>= fun id ->
-          curl_get_status [id]
+          get_status `Curl [id]
           >>= fun () ->
           Lwt_unix.sleep 5.
           >>= fun () ->
-          curl_get_status [id]
+          get_status `Client [id]
         end
       >>= fun () ->
       Lwt_unix.sleep 500.

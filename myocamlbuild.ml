@@ -1,4 +1,4 @@
-open Printf
+open Nonstd
 open Solvuu_build.Std
 
 let project_name = "coclobas"
@@ -28,17 +28,56 @@ let lib : Project.item =
     ~pack_name:project_name
     ~pkg:project_name
 
+let ketrew_backend : Project.item option =
+  let item =
+    Project.lib (project_name ^ "_ketrew_backend")
+      ~thread:()
+      ~findlib_deps:("ketrew" :: findlib_deps)
+      ~dir:"src/ketrew_backend"
+      ~pack_name:(project_name ^ "_ketrew_backend")
+      ~internal_deps:[lib]
+      ~pkg:(project_name ^ ".ketrew_backend")
+  in
+  if Project.dep_opts_sat item ["ketrew"]
+  then Some item
+  else None
+
 let app : Project.item =
   Project.app project_name
     ~thread:()
     ~file:"src/app/main.ml"
     ~internal_deps:[lib]
 
-let test : Project.item =
-  Project.app (project_name ^ "-test")
-    ~thread:()
-    ~file:"src/test/client_server.ml"
-    ~internal_deps:[lib]
+let test : Project.item option =
+  if build_tests
+  then Some (
+      Project.app (project_name ^ "-test")
+        ~thread:()
+        ~file:"src/test/client_server.ml"
+        ~internal_deps:[lib]
+    ) else None
+
+let linked_ketrew : Project.item option =
+  match ketrew_backend with
+  | Some kb ->
+    Some (
+      Project.app (project_name ^ "-ketrew")
+        ~thread:()
+        ~file:"src/test/cocloketrew.ml"
+        ~internal_deps:[lib; kb]
+    )
+  | _ -> None
+
+let test_ketrew_workflow : Project.item option =
+  match build_tests, ketrew_backend with
+  | true, Some kb ->
+    Some (
+      Project.app (project_name ^ "-ketrew-workflow-test")
+        ~thread:()
+        ~file:"src/test/workflow_test.ml"
+        ~internal_deps:[lib; kb]
+    )
+  | _, _ -> None
 
 let ocamlinit_postfix = [
   sprintf "open %s" (String.capitalize project_name);
@@ -46,4 +85,11 @@ let ocamlinit_postfix = [
 
 let () =
   Project.basic1 ~project_name ~version ~ocamlinit_postfix
-    (if build_tests then [lib; app; test] else [lib; app])
+    (List.filter_opt [
+        Some lib;
+        Some app;
+        test;
+        ketrew_backend;
+        linked_ketrew;
+        test_ketrew_workflow;
+      ])

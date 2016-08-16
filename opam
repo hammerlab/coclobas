@@ -1,0 +1,42 @@
+opam-version: "1.2"
+version: "dev"
+maintainer: "Seb Mondet <seb@mondet.org>"
+authors: "Seb Mondet <seb@mondet.org>"
+homepage: "https://github.com/hammerlab/coclobas"
+bug-reports: "https://github.com/hammerlab/coclobas/issues"
+dev-repo: "https://github.com/hammerlab/coclobas"
+license: "Apache 2.0"
+
+build: [
+  [make "byte"]
+  [make "native"]
+]
+
+install: [
+  [make "META"]
+  [make "coclobas.install"]
+]
+
+remove: []
+
+depends: [
+  "ocamlfind"
+  "ocamlbuild"
+  "solvuu-build"
+  "nonstd"
+  "sosa"
+  "pvem_lwt_unix"
+  "cohttp" "lwt"
+  "irmin-unix"
+  "cmdliner"
+  "ppx_deriving"
+  "ppx_deriving_yojson"
+  "uuidm"
+]
+depopts: [
+  "ketrew"
+]
+
+available: [
+  ocaml-version >= "4.02.3"
+]
