@@ -2,14 +2,15 @@
 open Nonstd
 
 let () =
+  let base_url = "http://localhost:8082" in
   let wf =
     let open Ketrew.EDSL in
     let node1 =
       workflow_node without_product
-        ~name:"coclobas test should succeed"
+        ~name:"Coclobas test should succeed"
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
-            ~base_url:"http://localhost:8082"
+            ~base_url
             Coclobas.Kube_job.Specification.(
               fresh ~image:"ubuntu"
                 ["ls"; "-la"]
@@ -18,10 +19,10 @@ let () =
     in
     let node2 =
       workflow_node without_product
-        ~name:"coclobas test should fail"
+        ~name:"Coclobas test should fail"
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
-            ~base_url:"http://localhost:8082"
+            ~base_url
             Coclobas.Kube_job.Specification.(
               fresh ~image:"ubuntu"
                 ["exit"; "1"]
@@ -30,10 +31,10 @@ let () =
     in
     let node3 =
       workflow_node without_product
-        ~name:"coclobas test uses secret"
+        ~name:"Coclobas test uses secret"
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
-            ~base_url:"http://localhost:8082"
+            ~base_url
             Coclobas.Kube_job.Specification.(
               let path = "/ketrewkube/hello-world" in
               let cool_file =
@@ -49,11 +50,29 @@ let () =
             )
         )
     in
+    let node4 =
+      workflow_node without_product
+        ~name:"Coclobas test uses Program.t"
+        ~make:(
+          Coclobas_ketrew_backend.Plugin.run_program
+            ~base_url
+            ~image:"ubuntu"
+            Program.(
+              chain [
+                shf "whoami";
+                shf "hostname";
+                shf "echo \"ketrew playground: $KETREW_PLAYGROUND\""
+              ]
+            )
+        )
+    in
     workflow_node without_product
+      ~name:"Coclobas test workflow"
       ~edges:[
         depends_on node1;
         depends_on node2;
         depends_on node3;
+        depends_on node4;
       ]
   in
   Ketrew.Client.submit_workflow wf
