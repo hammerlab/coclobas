@@ -168,6 +168,20 @@ module Server = struct
     >>= fun l ->
     return (`Json (`List l))
 
+  let get_job_logs t ids =
+    Deferred_list.while_sequential ids ~f:(fun id ->
+        Job.get (Storage.make t.root) id
+        >>= fun job ->
+        Job.get_logs ~log:t.log job
+        >>= fun (out, err) ->
+        return (`Assoc [
+            "id", `String id;
+            "output", `String (out ^ err);
+          ]))
+    >>= fun l ->
+    return (`Json (`List l))
+
+
   let get_job_description t ids =
     Deferred_list.while_sequential ids ~f:(fun id ->
         Job.get (Storage.make t.root) id
@@ -231,6 +245,8 @@ module Server = struct
               Server.respond_string ~status:`OK ~body ()
             | "/job/status" ->
               get_job_status t (job_ids_of_uri uri) |> respond_result
+            | "/job/logs" ->
+              get_job_logs t (job_ids_of_uri uri) |> respond_result
             | "/job/describe" ->
               get_job_description t (job_ids_of_uri uri) |> respond_result
             | "/job/kill" ->
