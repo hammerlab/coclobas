@@ -16,11 +16,24 @@ module Specification = struct
     let point m = m.point
     let read_only m = m.read_only
   end
+  module File_contents_mount = struct
+    type t = {
+      id: string;
+      path: string;
+      contents: string [@main];
+    } [@@deriving yojson, show, make]
+    let fresh ~path contents =
+      let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
+      make ~id ~path contents
+    let id t = t.id
+    let path t = t.path
+    let contents t = t.contents
+  end
   type t = {
     id: string;
     image: string;
     command: string list;
-    volume_mounts: [ `Nfs of Nfs_mount.t ] list;
+    volume_mounts: [ `Nfs of Nfs_mount.t | `Constant of File_contents_mount.t ] list;
     memory: [ `GB of int ] [@default `GB 50];
     cpus: int [@default 7];
   } [@@deriving yojson, show, make]
@@ -85,47 +98,90 @@ let start ~log t =
       "cpu", `String (Int.to_string spec.cpus);
     ] in
   let json : Yojson.Safe.json =
-    `Assoc [
-      "kind", `String "Pod";
-      "apiVersion", `String "v1";
-      "metadata", `Assoc [
-        "name", `String spec.id;
-        "labels", `Assoc [
-          "app", `String spec.id;
-        ];
-      ];
-      "spec", `Assoc [
-        "restartPolicy", `String "Never";
-        "containers", `List [
-          `Assoc [
-            "name", `String (spec.id ^ "container");
-            "image", `String spec.image;
-            "command", `List (List.map spec.command ~f:(fun s -> `String s));
-            "volumeMounts",
-            `List (List.map spec.volume_mounts ~f:(fun (`Nfs m) ->
-                `Assoc [
-                  "name", `String (Nfs_mount.id m);
-                  "mountPath", `String (Nfs_mount.point m);
-                ])
-              );
-            "resources", `Assoc [
-              "requests", requests_json;
+    let secrets =
+      List.filter_map spec.volume_mounts ~f:(function
+        | `Nfs _ -> None
+        | `Constant f ->
+          Some  (`Assoc [
+              "apiVersion", `String "v1";
+              "kind", `String "Secret";
+              "metadata", `Assoc [
+                "name", `String (File_contents_mount.id f);
+              ];
+              "data", `Assoc [
+                Filename.basename (File_contents_mount.path f),
+                `String (File_contents_mount.contents f |> B64.encode);
+              ];
+            ] )) in
+    let items =
+      secrets
+      @ [
+        `Assoc [
+          "apiVersion", `String "v1";
+          "kind", `String "Pod";
+          "metadata", `Assoc [
+            "name", `String spec.id;
+            "labels", `Assoc [
+              "app", `String spec.id;
             ];
           ];
-        ];
-        "volumes", `List (
-          List.map spec.volume_mounts ~f:(fun (`Nfs m) ->
+          "spec", `Assoc [
+            "restartPolicy", `String "Never";
+            "containers", `List [
               `Assoc [
-                "name", `String (Nfs_mount.id m);
-                "nfs", `Assoc [
-                  "server", `String (Nfs_mount.host m);
-                  "path", `String (Nfs_mount.path m);
-                  "readOnly", `Bool (Nfs_mount.read_only m);
+                "name", `String (spec.id ^ "container");
+                "image", `String spec.image;
+                "command", `List (List.map spec.command ~f:(fun s -> `String s));
+                "volumeMounts",
+                `List (
+                  List.map spec.volume_mounts ~f:(function
+                    | `Constant f ->
+                      `Assoc [
+                        "name", `String (File_contents_mount.id f ^ "-volume");
+                        "readOnly", `Bool true;
+                        "mountPath", `String (Filename.dirname
+                                                (File_contents_mount.path f));
+                      ]
+                    | `Nfs m ->
+                      `Assoc [
+                        "name", `String (Nfs_mount.id m);
+                        "mountPath", `String (Nfs_mount.point m);
+                      ])
+                );
+                "resources", `Assoc [
+                  "requests", requests_json;
                 ];
-              ])
-        );
-      ];
-    ] in
+              ];
+            ];
+            "volumes", `List (
+              List.map spec.volume_mounts ~f:(function
+                | `Constant f ->
+                  `Assoc [
+                    "name", `String (File_contents_mount.id f ^ "-volume");
+                    "secret", `Assoc [
+                      "secretName",  `String (File_contents_mount.id f);
+                    ]
+                  ]   
+                | `Nfs m ->
+                  `Assoc [
+                    "name", `String (Nfs_mount.id m);
+                    "nfs", `Assoc [
+                      "server", `String (Nfs_mount.host m);
+                      "path", `String (Nfs_mount.path m);
+                      "readOnly", `Bool (Nfs_mount.read_only m);
+                    ];
+                  ])
+            );
+          ];
+        ];
+      ]
+    in
+    `Assoc [
+      "apiVersion", `String "v1";
+      "kind", `String "List";
+      "items", `List items;
+    ]
+  in
   let json_string = Yojson.Safe.pretty_to_string ~std:true json in
   let tmp = Filename.temp_file "coclojob" ".json" in
   Pvem_lwt_unix.IO.write_file tmp ~content:json_string
@@ -161,13 +217,6 @@ let get_status_json ~log t =
   command_must_succeed_with_output ~log t cmd
   >>= fun (out, _) ->
   return out
-(* let spec = t.specification in *)
-(* let open Specification in *)
-(* let tmp = Filename.temp_file "coclojob-status" ".json" in *)
-(* ksprintf Pvem_lwt_unix.System.Shell.do_or_fail *)
-(*   "kubectl get pod %s -o=json > %s" spec.id tmp *)
-(* >>= fun () -> *)
-(* Pvem_lwt_unix.IO.read_file tmp *)
 
 module Kube_status = struct
   (* cf. http://kubernetes.io/docs/user-guide/pod-states/ *)

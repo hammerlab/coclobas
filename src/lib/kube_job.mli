@@ -1,8 +1,9 @@
 open Internal_pervasives
 
 module Specification : sig
-  module Nfs_mount : sig
-    type t = private {
+  module Nfs_mount :
+  sig
+    type t = {
       host : string;
       path : string;
       point : string;
@@ -18,27 +19,28 @@ module Specification : sig
     val point : t -> string
     val read_only : t -> bool
   end
-
-  type t = private {
-    id : string;
-    image : string;
-    command : string list;
-    volume_mounts : [ `Nfs of Nfs_mount.t ] list;
-    memory : [ `GB of int ];
-    cpus : int;
-  }[@@deriving yojson, show, make]
-
+  module File_contents_mount : sig
+    type t = { id : string; path : string; contents : string; }
+    val show : t -> Ppx_deriving_runtime.string
+    val make : id:string -> path:string -> string -> t
+    val fresh : path:string -> string -> t
+    val id : t -> string
+    val path : t -> string
+    val contents : t -> string
+  end
+  type t = {
+    id: string;
+    image: string;
+    command: string list;
+    volume_mounts: [ `Nfs of Nfs_mount.t | `Constant of File_contents_mount.t ] list;
+    memory: [ `GB of int ] [@default `GB 50];
+    cpus: int [@default 7];
+  } [@@deriving yojson, show, make]
   val id : t -> string
-  val make :
-    id:string ->
-    image:string ->
-    ?command:string list ->
-    ?volume_mounts:[ `Nfs of Nfs_mount.t ] list ->
-    ?memory:[ `GB of int ] -> ?cpus:int -> unit -> t
-
   val fresh :
     image:string ->
-    ?volume_mounts:[ `Nfs of Nfs_mount.t ] list -> string list -> t
+    ?volume_mounts:[ `Constant of File_contents_mount.t | `Nfs of Nfs_mount.t ] list ->
+    string list -> t
 end
 
 module Status : sig
