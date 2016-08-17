@@ -31,6 +31,7 @@ module Server = struct
     mutable jobs: Job.t list;
     storage: Storage.t;
     log: Log.t;
+    mutable job_list_mutex: Lwt_mutex.t option;
   } [@@deriving make]
 
   let log_event t e =
@@ -80,10 +81,25 @@ module Server = struct
     in
     Log.log t.log ~section:["server"; subsection] json
 
-  let save_job_list t =
-    Storage.Json.save_jsonable t.storage
-      ~path:["server"; "jobs.json"]
-      (`List (List.map t.jobs ~f:(fun j -> `String (Job.id j))))
+  let change_job_list t action =
+    let mutex =
+      match t.job_list_mutex with
+      | Some s -> s
+      | None ->
+        let m = Lwt_mutex.create () in
+        t.job_list_mutex <- Some m;
+        m
+    in
+    Lwt_mutex.with_lock mutex begin fun () ->
+      begin match action with
+      | `Add j -> t.jobs <- j :: t.jobs
+      | `Remove j ->
+        t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
+      end;
+      Storage.Json.save_jsonable t.storage
+        ~path:["server"; "jobs.json"]
+        (`List (List.map t.jobs ~f:(fun j -> `String (Job.id j))))
+    end
 
   let get_job_list t =
     let parse =
@@ -117,8 +133,7 @@ module Server = struct
     let job = Job.make spec in
     Job.save (Storage.make t.root) job
     >>= fun () ->
-    t.jobs <- job :: t.jobs;
-    save_job_list t
+    change_job_list t (`Add job)
     >>= fun () ->
     log_event t (`Incomming_job job)
     >>= fun () ->
@@ -142,8 +157,7 @@ module Server = struct
       >>= fun () ->
       Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
       | `Remove j ->
-        t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
-        save_job_list t
+        change_job_list t (`Remove j)
       | `Start j ->
         dbg "starting %s" (Job.show j);
         Job.start ~log:t.log j
