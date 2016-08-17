@@ -19,7 +19,13 @@ let wrap lwt =
   Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn e))
 
 let init {root; _} =
-  ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "mkdir -p %s" root
+  begin
+    ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "mkdir -p %s" root
+    >>< function
+    | `Ok () -> return ()
+    | `Error (`Shell (_, status)) ->
+      fail (`Storage (`Init_mkdir status))
+  end
   >>= fun () ->
   let config = Irmin_unix.Irmin_git.config ~root ~bare:true () in
   wrap (fun () -> Store.Repo.create config)
@@ -76,10 +82,20 @@ module Json = struct
 end
 
 module Error = struct
+  type common = [
+    | `Exn of exn
+    | `Init_mkdir of
+        [ `Exited of int
+        | `Exn of exn
+        | `Signaled of int
+        | `Stopped of int ] ]
   let to_string =
     function
     | `Exn _ as e -> Generic_error.to_string e
     | `Of_json s -> s
     | `Missing_data s -> sprintf "Missing data: %s" s
+    | `Init_mkdir s ->
+      sprintf "Initialization: mkdir failed: %s"
+        (Pvem_lwt_unix.System.Shell.status_to_string s)
 end
 
