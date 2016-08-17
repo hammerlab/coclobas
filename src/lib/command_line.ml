@@ -166,7 +166,6 @@ module Server = struct
       | `Remove j ->
         change_job_list t (`Remove j)
       | `Start j ->
-        dbg "starting %s" (Job.show j);
         Job.start ~log:t.log j
         >>< begin function
         | `Ok () -> 
@@ -181,7 +180,6 @@ module Server = struct
           return ()
         end
       | `Update j ->
-        dbg "updating %s" (Job.show j);
         begin
           Job.get_status_json ~log:t.log j
           >>= fun blob ->
