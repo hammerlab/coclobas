@@ -33,6 +33,46 @@ module Server = struct
     log: Log.t;
   } [@@deriving make]
 
+  let log_event t e =
+    let json_event name moar_json = 
+      `Assoc ([
+          "event", `String name;
+          "date", `String (ODate.Unix.(now () |> Printer.to_iso));
+        ] @ moar_json)
+    in
+    let stringf fmt = ksprintf (fun s -> `String s) fmt in
+    let current_jobs () =
+      `List (List.map t.jobs ~f:(fun j ->
+          `Assoc [
+            "id", `String (Job.id j);
+            "status", (Job.status j |> Job.Status.to_yojson);
+          ])) in
+    let subsection, json =
+      match e with
+      | `Ready ->
+        "startup",
+        json_event "start-with-jobs" [
+          "jobs", current_jobs ();
+        ]
+      | `Loop_begins todo ->
+        "loop",
+        json_event "loop-begins" [
+          "todo", `List 
+            (List.map todo ~f:(function
+               | `Remove j -> stringf "rm %s" (Job.id j)
+               | `Start j -> stringf "start %s" (Job.id j)
+               | `Update j -> stringf "update %s" (Job.id j)));
+          "jobs", current_jobs ();
+        ]
+      | `Loop_ends errors ->
+        "loop",
+        json_event "loop-begins" [
+          "errors", `List (List.map errors ~f:(fun x ->
+              `String (Error.to_string x)));
+          "jobs", current_jobs ();
+        ]
+    in
+    Log.log t.log ~section:["server"; subsection] json
 
   let save_job_list t =
     Storage.Json.save_jsonable t.storage
@@ -76,26 +116,23 @@ module Server = struct
     >>= fun () ->
     return `Done
 
-  let rec loop t =
-    let now () = Unix.gettimeofday () in
-    let todo =
-      List.fold t.jobs ~init:[] ~f:(fun prev j ->
-          match Job.status j with
-          | `Error _
-          | `Finished _ -> `Remove j :: prev
-          | `Submitted -> `Start j :: prev
-          | `Started time when time +. 30. > now () -> prev
-          | `Started _ -> `Update j :: prev
-        )
-    in
-    dbg "Todo: %f [%s] of (%d jobs)" (now ())
-      (List.map todo ~f:(function
-         | `Remove j -> sprintf "rm %s" (Job.id j)
-         | `Start j -> sprintf "start %s" (Job.id j)
-         | `Update j -> sprintf "update %s" (Job.id j))
-       |> String.concat ~sep:", ")
-      (List.length t.jobs);
-    Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
+  let rec loop:
+    t -> (unit, [ `Storage of Storage.Error.common ]) Deferred_result.t
+    = fun t ->
+      let now () = Unix.gettimeofday () in
+      let todo =
+        List.fold t.jobs ~init:[] ~f:(fun prev j ->
+            match Job.status j with
+            | `Error _
+            | `Finished _ -> `Remove j :: prev
+            | `Submitted -> `Start j :: prev
+            | `Started time when time +. 30. > now () -> prev
+            | `Started _ -> `Update j :: prev
+          )
+      in
+      log_event t (`Loop_begins (todo))
+      >>= fun () ->
+      Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
       | `Remove j ->
         t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
         save_job_list t
@@ -142,11 +179,24 @@ module Server = struct
           j.Job.status <- `Error (Error.to_string e);
           Job.save (Storage.make t.root) j
         end
-      )
-    >>= fun (_ : unit list) ->
-    (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
-    >>= fun () ->
-    loop t
+      end
+      >>= fun ((_ : unit list),
+               (* We make sure only really fatal errors “exit the loop:” *)
+               (errors : [ `Storage of Storage.Error.common ] list)) ->
+      log_event t (`Loop_ends errors)
+      >>= fun () ->
+      begin match errors with
+      | [] -> return ()
+      | _ :: _ ->
+        dbg "%s → ERRORS IN THE LOOP!!!: %s"
+          ODate.Unix.(now () |> Printer.to_iso)
+          (List.map errors ~f:Error.to_string |> String.concat ~sep:"\n");
+        exit 5
+      end
+      >>= fun () ->
+      (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
+      >>= fun () ->
+      loop t
 
   let initialization t =
     Cluster.ensure_living ~log:t.log t.cluster
@@ -154,6 +204,8 @@ module Server = struct
     get_job_list t
     >>= fun () ->
     t.status <- `Ready;
+    log_event t `Ready;
+    >>= fun () ->
     Lwt.async (fun () -> loop t);
     return ()
 
