@@ -140,7 +140,7 @@ module Server = struct
         | `Ok () -> return ()
         | `Error e ->
           j.Job.status <- `Error (Error.to_string e);
-          return ()
+          Job.save (Storage.make t.root) j
         end
       )
     >>= fun (_ : unit list) ->
