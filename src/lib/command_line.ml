@@ -72,10 +72,17 @@ module Server = struct
               `String (Error.to_string x)));
           "jobs", current_jobs ();
         ]
-      | `Incomming_job job ->
-        "incomming-job",
-        json_event "incomming-job" [
-          "job-id", `String (Job.id job);
+      | `Changed_job_list action ->
+        let action =
+          match action with
+          | `Add j ->
+            `Assoc ["verb", `String "add"; "job", `String (Job.id j)]
+          | `Remove j ->
+            `Assoc ["verb", `String "remove"; "job", `String (Job.id j)]
+        in
+        "job-list",
+        json_event "changed-job-list" [
+          "action", action;
           "jobs", current_jobs ();
         ]
     in
@@ -99,6 +106,8 @@ module Server = struct
       Storage.Json.save_jsonable t.storage
         ~path:["server"; "jobs.json"]
         (`List (List.map t.jobs ~f:(fun j -> `String (Job.id j))))
+      >>= fun () ->
+      log_event t (`Changed_job_list action)
     end
 
   let get_job_list t =
@@ -134,8 +143,6 @@ module Server = struct
     Job.save (Storage.make t.root) job
     >>= fun () ->
     change_job_list t (`Add job)
-    >>= fun () ->
-    log_event t (`Incomming_job job)
     >>= fun () ->
     return `Done
 
