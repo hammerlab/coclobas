@@ -66,9 +66,15 @@ module Server = struct
         ]
       | `Loop_ends errors ->
         "loop",
-        json_event "loop-begins" [
+        json_event "loop-ends" [
           "errors", `List (List.map errors ~f:(fun x ->
               `String (Error.to_string x)));
+          "jobs", current_jobs ();
+        ]
+      | `Incomming_job job ->
+        "incomming-job",
+        json_event "incomming-job" [
+          "job-id", `String (Job.id job);
           "jobs", current_jobs ();
         ]
     in
@@ -113,6 +119,8 @@ module Server = struct
     >>= fun () ->
     t.jobs <- job :: t.jobs;
     save_job_list t
+    >>= fun () ->
+    log_event t (`Incomming_job job)
     >>= fun () ->
     return `Done
 
