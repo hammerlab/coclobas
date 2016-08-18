@@ -48,7 +48,7 @@ let rec curl_status_until_ready acc =
     failf "Curl /status: %s" (String.concat ~sep:"." curl_lines);
   end
 
-module Coclojob = Coclobas.Command_line.Job.Specification
+module Coclojob = Coclobas.Kube_job.Specification
 
 let submit_job how job =
   let open Lwt in
