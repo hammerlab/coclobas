@@ -32,7 +32,7 @@ let server =
     (`Tcp port)
 
 let client =
-  client ~token (sprintf "http://localhost:%d" port)
+  client ~token (sprintf "http://127.0.0.1:%d" port)
 
 let () =
   output [
