@@ -1,299 +1,24 @@
 open Internal_pervasives
 
 
-module Cluster = Kube_cluster
-
-module Job = Kube_job
-
-module Error = struct
-  let to_string =
-    let exn = Printexc.to_string in
-    function
-    | `Shell (cmd, ex) ->
-      sprintf "Shell-command failed: %S" cmd
-    | `Storage e -> Storage.Error.to_string e
-    | `IO (`Write_file_exn (path, e)) ->
-      sprintf "Writing file %S: %s" path (exn e)
-    | `IO (`Read_file_exn (path, e)) ->
-      sprintf "Reading file %S: %s" path (exn e)
-    | `Job e -> Job.Error.to_string e
-    | `Start_server (`Exn e) ->
-      sprintf "Starting Cohttp server: %s" (exn e)
-end
-
-module Server = struct
-
-  type t = {
-    port : int;
-    mutable status: [ `Initializing | `Ready ] [@default `Initializing];
-    root : string;
-    mutable cluster : Cluster.t;
-    mutable jobs: Job.t list;
-    storage: Storage.t;
-    log: Log.t;
-  } [@@deriving make]
-
-
-  let save_job_list t =
-    Storage.Json.save_jsonable t.storage
-      ~path:["server"; "jobs.json"]
-      (`List (List.map t.jobs ~f:(fun j -> `String (Job.id j))))
-
-  let get_job_list t =
-    let parse =
-      let open Pvem.Result in
-      function
-      | `List l ->
-        List.fold ~init:(return []) l ~f:(fun prev j ->
-            prev >>= fun l ->
-            match j with
-            | `String s -> return (s :: l)
-            | other -> fail "expecting List of Strings")
-      | other -> fail "expecting List (of Strings)"
-    in
-    begin
-      Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse
-      >>< function
-      | `Ok ids -> return ids
-      | `Error (`Storage (`Missing_data md)) -> return []
-      | `Error other -> fail other
-    end
-    >>= fun ids ->
-    Deferred_list.while_sequential ids ~f:(fun id ->
-        Job.get t.storage id)
-    >>= fun jobs ->
-    t.jobs <- jobs;
-    return ()
-
-  let incoming_job t string =
-    Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
-    >>= fun spec ->
-    let job = Job.make spec in
-    Job.save (Storage.make t.root) job
-    >>= fun () ->
-    t.jobs <- job :: t.jobs;
-    save_job_list t
-    >>= fun () ->
-    return `Done
-
-  let rec loop t =
-    let now () = Unix.gettimeofday () in
-    let todo =
-      List.fold t.jobs ~init:[] ~f:(fun prev j ->
-          match Job.status j with
-          | `Error _
-          | `Finished _ -> `Remove j :: prev
-          | `Submitted -> `Start j :: prev
-          | `Started time when time +. 30. > now () -> prev
-          | `Started _ -> `Update j :: prev
-        )
-    in
-    dbg "Todo: %f [%s] of (%d jobs)" (now ())
-      (List.map todo ~f:(function
-         | `Remove j -> sprintf "rm %s" (Job.id j)
-         | `Start j -> sprintf "start %s" (Job.id j)
-         | `Update j -> sprintf "update %s" (Job.id j))
-       |> String.concat ~sep:", ")
-      (List.length t.jobs);
-    Pvem_lwt_unix.Deferred_list.while_sequential todo ~f:(function
-      | `Remove j ->
-        t.jobs <- List.filter t.jobs ~f:(fun jj -> Job.id jj <> Job.id j);
-        save_job_list t
-      | `Start j ->
-        dbg "starting %s" (Job.show j);
-        Job.start ~log:t.log j
-        >>< begin function
-        | `Ok () -> 
-          j.Job.status <- `Started (now ());
-          Job.save (Storage.make t.root) j
-          >>= fun () ->
-          return ()
-        | `Error e ->
-          j.Job.status <- `Error (Error.to_string e);
-          Job.save (Storage.make t.root) j
-          >>= fun () ->
-          return ()
-        end
-      | `Update j ->
-        dbg "updating %s" (Job.show j);
-        begin
-          Job.get_status_json ~log:t.log j
-          >>= fun blob ->
-          Job.Kube_status.of_json blob
-          >>= fun stat ->
-          let open Job.Kube_status in
-          begin match stat with
-          | { phase = `Pending }
-          | { phase = `Unknown }
-          | { phase = `Running } ->
-            j.Job.status <- `Started (now ());
-            Job.save (Storage.make t.root) j
-            >>= fun () ->
-            return ()
-          | { phase = (`Failed | `Succeeded as phase)} ->
-            j.Job.status <- `Finished (now (), phase);
-            Job.save (Storage.make t.root) j
-            >>= fun () ->
-            return ()
-          end
-        end >>< begin function
-        | `Ok () -> return ()
-        | `Error e ->
-          j.Job.status <- `Error (Error.to_string e);
-          return ()
-        end
-      )
-    >>= fun (_ : unit list) ->
-    (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
-    >>= fun () ->
-    loop t
-
-  let initialization t =
-    Cluster.ensure_living ~log:t.log t.cluster
-    >>= fun () ->
-    get_job_list t
-    >>= fun () ->
-    t.status <- `Ready;
-    Lwt.async (fun () -> loop t);
-    return ()
-
-  let get_job_status t ids =
-    Deferred_list.while_sequential ids ~f:(fun id ->
-        Job.get (Storage.make t.root) id
-        >>= fun job ->
-        return (`Assoc [
-            "id", `String id;
-            "status", Job.status job |> Job.Status.to_yojson;
-          ]))
-    >>= fun l ->
-    return (`Json (`List l))
-
-  let get_job_logs t ids =
-    Deferred_list.while_sequential ids ~f:(fun id ->
-        Job.get (Storage.make t.root) id
-        >>= fun job ->
-        Job.get_logs ~log:t.log job
-        >>= fun (out, err) ->
-        return (`Assoc [
-            "id", `String id;
-            "output", `String (out ^ err);
-          ]))
-    >>= fun l ->
-    return (`Json (`List l))
-
-
-  let get_job_description t ids =
-    Deferred_list.while_sequential ids ~f:(fun id ->
-        Job.get (Storage.make t.root) id
-        >>= fun job ->
-        Job.describe ~log:t.log job
-        >>= fun descr ->
-        return (`Assoc [
-            "id", `String id;
-            "description", `String descr;
-          ]))
-    >>= fun l ->
-    return (`Json (`List l))
-
-
-  let kill_jobs t ids =
-    Deferred_list.while_sequential ids ~f:(fun id ->
-        Job.get (Storage.make t.root) id
-        >>= fun job ->
-        Job.kill ~log:t.log job
-        >>= fun () ->
-        return ())
-    >>= fun _ ->
-    return `Done
-
-  let respond_result r =
-    let open Cohttp in
-    let open Cohttp_lwt_unix in
-    let open Lwt in
-    r >>= begin function
-    | `Ok `Done -> Server.respond_string ~status:`OK ~body:"Done" ()
-    | `Ok (`Json j) ->
-      let body = Yojson.Safe.pretty_to_string ~std:true j in
-      Server.respond_string ~status:`OK ~body ()
-    | `Error e ->
-      Server.respond_string
-        ~status:`Bad_request ~body:(Error.to_string e) ()
-    end
-
-  let job_ids_of_uri uri =
-    Uri.query uri
-    |> List.concat_map ~f:(function | ("id", l) -> l | _ -> [])
-
-  let start t =
-    let condition = Lwt_condition.create () in
-    let server_thread () =
-      Deferred_result.wrap_deferred
-        ~on_exn:(fun e -> `Start_server (`Exn e))
-        begin fun () ->
-          let open Cohttp in
-          let open Cohttp_lwt_unix in
-          let open Lwt in
-          let callback _conn req body =
-            let uri = req |> Request.uri in
-            match Uri.path uri with
-            | "/status" ->
-              let body =
-                match t.status with
-                | `Initializing -> "Initializing"
-                | `Ready -> "Ready"
-              in
-              Server.respond_string ~status:`OK ~body ()
-            | "/job/status" ->
-              get_job_status t (job_ids_of_uri uri) |> respond_result
-            | "/job/logs" ->
-              get_job_logs t (job_ids_of_uri uri) |> respond_result
-            | "/job/describe" ->
-              get_job_description t (job_ids_of_uri uri) |> respond_result
-            | "/job/kill" ->
-              kill_jobs t  (job_ids_of_uri uri) |> respond_result
-            | "/job/submit" ->
-              body |> Cohttp_lwt_body.to_string
-              >>= fun body_string ->
-              incoming_job t body_string
-              |> respond_result
-            | other ->
-              let meth = req |> Request.meth |> Code.string_of_method in
-              let headers = req |> Request.headers |> Header.to_string in
-              body |> Cohttp_lwt_body.to_string >|= (fun body ->
-                  (Printf.sprintf "Uri: %s\nMethod: %s\nHeaders\nHeaders: %s\nBody: %s"
-                     (Uri.to_string uri) meth headers body))
-              >>= (fun body -> Server.respond_string ~status:`OK ~body ())
-          in
-          Server.create ~mode:(`TCP (`Port t.port)) (Server.make ~callback ())
-          >>= fun () ->
-          Lwt_condition.signal condition (`Ok ());
-          return ()
-        end
-    in
-    Lwt.async server_thread;
-    initialization t
-    >>= fun () ->
-    Lwt_condition.wait condition
-end
-
 let configure ~root ~cluster =
   let storage = Storage.make root in
-  Cluster.save ~storage cluster
+  Kube_cluster.save ~storage cluster
 
 let cluster ~root action =
   let storage = Storage.make root in
-  Cluster.get storage
+  Kube_cluster.get storage
   >>= fun cluster ->
   let log = Log.stored storage in
   begin match action with
-  | `Start -> Cluster.gcloud_start ~log cluster
-  | `Delete -> Cluster.gcloud_delete ~log cluster
-  | `Describe -> Cluster.gcloud_describe ~log cluster
+  | `Start -> Kube_cluster.gcloud_start ~log cluster
+  | `Delete -> Kube_cluster.gcloud_delete ~log cluster
+  | `Describe -> Kube_cluster.gcloud_describe ~log cluster
   end
 
 let start_server ~root ~port =
   let storage = Storage.make root in
-  Cluster.get storage
+  Kube_cluster.get storage
   >>= fun cluster ->
   let log = Log.stored storage in
   let server = Server.make ~storage ~log ~root ~cluster ~port () in
@@ -449,7 +174,7 @@ let main () =
       (`Name name)
       (`Zone zone)
       (`Max_nodes max_nodes) ->
-      Cluster.make name ~zone ~max_nodes
+      Kube_cluster.make name ~zone ~max_nodes
     end
     $ required_string "cluster-name" (fun s -> `Name s)
       ~doc:"Name of the Kubernetes cluster"

@@ -33,6 +33,7 @@ depends: [
   "ppx_deriving_yojson"
   "uuidm"
   "base64"
+  "odate"
 ]
 depopts: [
   "ketrew"

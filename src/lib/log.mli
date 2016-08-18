@@ -9,10 +9,13 @@ val log :
   t ->
   Yojson.Safe.json ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
+
+
+val debug_sections : string list list ref
+(** Catch sections and display them on ["stdout"], cf. the [?section] argument of {!log}.
+
+    At the start of the program, the [Log] module tries to parse
+    the ["COCLOBAS_DEBUG_SECTIONS"] environment variable to fill this
+    reference (comma-separated list of paths, e.g. ["/server/loop,cluster//commands"]).
+ *)

@@ -33,7 +33,7 @@ let run_program ~base_url ~image ?(volume_mounts = []) p =
       Ketrew_pure.Monitored_script.(
         create p
           ~playground:(Ketrew_pure.Path.absolute_directory_exn
-                         "/cloco-kube/playground")
+                         "/tmp/playground")
         |> to_string
       ) in
   let spec =

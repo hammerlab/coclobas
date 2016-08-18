@@ -10,7 +10,7 @@ val command_must_succeed_with_output :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ])
+   | `Storage of [> Storage.Error.common] ])
     Internal_pervasives.Deferred_result.t
 
 val command_must_succeed :
@@ -25,5 +25,5 @@ val command_must_succeed :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ])
+   | `Storage of [> Storage.Error.common ] ])
     Internal_pervasives.Deferred_result.t

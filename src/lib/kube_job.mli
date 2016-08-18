@@ -69,26 +69,14 @@ val save :
   Storage.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get :
   Storage.t ->
   string ->
   (t,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
-   | `Storage of
-        [> `Exn of exn | `Missing_data of string | `Of_json of string ] ])
+   [> `Storage of
+        [> Storage.Error.common | `Missing_data of string | `Of_json of string ] ])
     Deferred_result.t
 
 val start :
@@ -102,7 +90,7 @@ val start :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val describe :
   log:Log.t ->
@@ -114,7 +102,7 @@ val describe :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val kill :
   log:Log.t ->
@@ -126,7 +114,7 @@ val kill :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get_logs:
   log:Log.t ->
@@ -135,7 +123,7 @@ val get_logs:
    [> `Shell of
         string *
         [> `Exited of int | `Exn of exn | `Signaled of int | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get_status_json :
   log:Log.t ->
@@ -147,7 +135,7 @@ val get_status_json :
         | `Exn of exn
         | `Signaled of int
         | `Stopped of int ]
-   | `Storage of [> `Exn of exn ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 module Kube_status : sig
   type t = {
