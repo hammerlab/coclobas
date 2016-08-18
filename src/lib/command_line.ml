@@ -90,13 +90,7 @@ module Server = struct
 
   let change_job_list t action =
     let mutex =
-      match t.job_list_mutex with
-      | Some s -> s
-      | None ->
-        let m = Lwt_mutex.create () in
-        t.job_list_mutex <- Some m;
-        m
-    in
+      Option.value_exn t.job_list_mutex ~msg:"job_list_mutex!! not initialized?" in
     Lwt_mutex.with_lock mutex begin fun () ->
       begin match action with
       | `Add j -> t.jobs <- j :: t.jobs
@@ -226,6 +220,12 @@ module Server = struct
       loop t
 
   let initialization t =
+    begin match t.job_list_mutex with
+    | Some s -> ()
+    | None ->
+      let m = Lwt_mutex.create () in
+      t.job_list_mutex <- Some m;
+    end;
     Cluster.ensure_living ~log:t.log t.cluster
     >>= fun () ->
     get_job_list t
