@@ -2,7 +2,7 @@
 open Nonstd
 
 let () =
-  let base_url = "http://localhost:8082" in
+  let base_url = "http://127.0.0.1:8082" in
   let wf =
     let open Ketrew.EDSL in
     let node1 =
