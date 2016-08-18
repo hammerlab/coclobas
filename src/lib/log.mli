@@ -17,5 +17,5 @@ val debug_sections : string list list ref
 
     At the start of the program, the [Log] module tries to parse
     the ["COCLOBAS_DEBUG_SECTIONS"] environment variable to fill this
-    reference (coma-separated list of paths, e.g. ["/server/loop,cluster//commands"]).
+    reference (comma-separated list of paths, e.g. ["/server/loop,cluster//commands"]).
  *)
