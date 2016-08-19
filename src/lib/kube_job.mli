@@ -29,18 +29,12 @@ module Specification : sig
     val contents : t -> string
   end
   type t = {
-    id: string;
     image: string;
-    command: string list;
+    command: string list [@main];
     volume_mounts: [ `Nfs of Nfs_mount.t | `Constant of File_contents_mount.t ] list;
     memory: [ `GB of int ] [@default `GB 50];
     cpus: int [@default 7];
   } [@@deriving yojson, show, make]
-  val id : t -> string
-  val fresh :
-    image:string ->
-    ?volume_mounts:[ `Constant of File_contents_mount.t | `Nfs of Nfs_mount.t ] list ->
-    string list -> t
 end
 
 module Status : sig
@@ -56,10 +50,14 @@ module Status : sig
   val show : t -> Ppx_deriving_runtime.string
 end
 
-type t = { specification : Specification.t; mutable status : Status.t; }
+type t = {
+  id: string;
+  specification : Specification.t;
+  mutable status : Status.t; }
+
+val fresh : Specification.t -> t
 
 val show : t -> Ppx_deriving_runtime.string
-val make : ?status:Status.t -> Specification.t -> t
 
 val id : t -> string
 

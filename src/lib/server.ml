@@ -123,13 +123,13 @@ let get_job_list t =
 let incoming_job t string =
   Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
   >>= fun spec ->
-  let job = Job.make spec in
+  let job = Job.fresh spec in
   Job.save (Storage.make t.root) job
   >>= fun () ->
   change_job_list t (`Add job)
   >>= fun () ->
   Lwt_condition.broadcast t.kick_loop ();
-  return `Done
+  return (`String (Job.id job))
 
 let min_sleep = 3.
 let max_sleep = 180.
@@ -289,6 +289,7 @@ let respond_result r =
   let open Lwt in
   r >>= begin function
   | `Ok `Done -> Coserver.respond_string ~status:`OK ~body:"Done" ()
+  | `Ok (`String body) -> Coserver.respond_string ~status:`OK ~body ()
   | `Ok (`Json j) ->
     let body = Yojson.Safe.pretty_to_string ~std:true j in
     Coserver.respond_string ~status:`OK ~body ()

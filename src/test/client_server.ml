@@ -64,7 +64,7 @@ let submit_job how job =
     >>= fun lines ->
     test_out "curl_submit_job: %s %s"
       (Coclojob.show job) (String.concat ~sep:", " lines);
-    return (job.Coclojob.id)
+    return (List.hd_exn lines)
   | `Client ->
     Coclobas.Client.(
       submit_kube_job
@@ -72,7 +72,7 @@ let submit_job how job =
         job
       >>= fun res ->
       match res with
-      | `Ok () -> return (job.Coclojob.id)
+      | `Ok id -> return id
       | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
     )
 
@@ -157,7 +157,7 @@ let job_with_nfs () =
       | _ -> failwith "can't parse"
     in
     Some (
-      Coclojob.fresh
+      Coclojob.make
         ~image:"ubuntu"
         ~volume_mounts:[`Nfs mount]
         ["ls"; "-la"; witness]
@@ -183,9 +183,9 @@ let () =
         Lwt_unix.sleep 12.
       ]
       >>= fun () ->
-      curl_submit_job (Coclojob.fresh ~image:"ubuntu" ["sleep"; "42"])
+      curl_submit_job (Coclojob.make ~image:"ubuntu" ["sleep"; "42"])
       >>= fun sleep_42 ->
-      submit_job `Client (Coclojob.fresh ~image:"ubuntu" ["du"; "-sh"; "/usr"])
+      submit_job `Client (Coclojob.make ~image:"ubuntu" ["du"; "-sh"; "/usr"])
       >>= fun du_sh_usr ->
       get_status `Curl [sleep_42; du_sh_usr]
       >>= fun () ->
