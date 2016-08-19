@@ -47,9 +47,10 @@ let log_event t e =
              | `Update j -> stringf "update %s" (Job.id j)));
         "jobs", current_jobs ();
       ]
-    | `Loop_ends errors ->
+    | `Loop_ends (sleep, errors) ->
       "loop",
       json_event "loop-ends" [
+        "sleep", `Float sleep;
         "errors", `List (List.map errors ~f:(fun x ->
             `String (Error.to_string x)));
         "jobs", current_jobs ();
@@ -122,9 +123,13 @@ let incoming_job t string =
   >>= fun () ->
   return `Done
 
+let min_sleep = 3.
+let max_sleep = 180.
+
 let rec loop:
+  ?and_sleep : float ->
   t -> (unit, [ `Storage of Storage.Error.common ]) Deferred_result.t
-  = fun t ->
+  = fun ?(and_sleep = min_sleep) t ->
     let now () = Unix.gettimeofday () in
     let todo =
       List.fold t.jobs ~init:[] ~f:(fun prev j ->
@@ -186,7 +191,7 @@ let rec loop:
     >>= fun ((_ : unit list),
              (* We make sure only really fatal errors “exit the loop:” *)
              (errors : [ `Storage of Storage.Error.common ] list)) ->
-    log_event t (`Loop_ends errors)
+    log_event t (`Loop_ends (and_sleep, errors))
     >>= fun () ->
     begin match errors with
     | [] -> return ()
@@ -197,9 +202,13 @@ let rec loop:
       exit 5
     end
     >>= fun () ->
-    (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
+    (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return ())
     >>= fun () ->
-    loop t
+    let and_sleep =
+      match todo with
+      | [] -> min max_sleep (and_sleep *. 2.)
+      | _ -> min_sleep in
+    loop ~and_sleep t
 
 let initialization t =
   begin match t.job_list_mutex with
