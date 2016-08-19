@@ -14,12 +14,15 @@ type t = {
   storage: Storage.t;
   log: Log.t;
   job_list_mutex: Lwt_mutex.t;
+  kick_loop: unit Lwt_condition.t;
 } [@@deriving make]
 
 let create ~port ~root ~cluster ~storage ~log =
   let job_list_mutex = Lwt_mutex.create () in
+  let kick_loop = Lwt_condition.create () in
   make ()
     ~job_list_mutex
+    ~kick_loop
     ~port ~root ~cluster ~storage ~log
 
 let log_event t e =
@@ -125,6 +128,7 @@ let incoming_job t string =
   >>= fun () ->
   change_job_list t (`Add job)
   >>= fun () ->
+  Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
 let min_sleep = 3.
@@ -206,12 +210,15 @@ let rec loop:
       exit 5
     end
     >>= fun () ->
-    (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return ())
-    >>= fun () ->
+    Deferred_list.pick_and_cancel [
+      (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return false);
+      Lwt.(Lwt_condition.wait t.kick_loop >>= fun () -> return (`Ok true));
+    ]
+    >>= fun kicked ->
     let and_sleep =
-      match todo with
-      | [] -> min max_sleep (and_sleep *. 2.)
-      | _ -> min_sleep in
+      match todo, kicked with
+      | [], false -> min max_sleep (and_sleep *. 2.)
+      | _, _ -> min_sleep in
     loop ~and_sleep t
 
 let initialization t =
@@ -313,6 +320,9 @@ let start t =
               | `Ready -> "Ready"
             in
             Coserver.respond_string ~status:`OK ~body ()
+          | "/kick" ->
+            Lwt_condition.broadcast t.kick_loop ();
+            respond_result (return (`Ok `Done))
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
