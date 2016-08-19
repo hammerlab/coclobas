@@ -18,31 +18,19 @@ module Specification = struct
   end
   module File_contents_mount = struct
     type t = {
-      id: string;
       path: string;
       contents: string [@main];
     } [@@deriving yojson, show, make]
-    let fresh ~path contents =
-      let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-      make ~id ~path contents
-    let id t = t.id
     let path t = t.path
     let contents t = t.contents
   end
   type t = {
-    id: string;
     image: string;
-    command: string list;
+    command: string list [@main];
     volume_mounts: [ `Nfs of Nfs_mount.t | `Constant of File_contents_mount.t ] list;
     memory: [ `GB of int ] [@default `GB 50];
     cpus: int [@default 7];
   } [@@deriving yojson, show, make]
-
-  let id t = t.id
-
-  let fresh ~image ?volume_mounts command =
-    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-    make ~id ~image ?volume_mounts ~command ()
 end
 module Status = struct
   type t = [
@@ -54,11 +42,16 @@ module Status = struct
 end
 
 type t = {
+  id: string;
   specification: Specification.t [@main];
   mutable status: Status.t [@default `Submitted];
 } [@@deriving yojson, show, make]
 
-let id t = t.specification.Specification.id
+let fresh spec =
+    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
+    make ~id spec
+
+let id t = t.id
 
 let status t = t.status
 
@@ -80,7 +73,7 @@ let get st job_id =
     ~path:["job"; job_id; "status.json"]
     ~parse:Status.of_yojson
   >>= fun status ->
-  return {specification; status}
+  return {id = job_id; specification; status}
 
 let command_must_succeed ~log ?additional_json job cmd =
   Hyper_shell.command_must_succeed ~log cmd ?additional_json
@@ -92,6 +85,11 @@ let command_must_succeed_with_output ~log ?additional_json job cmd =
 let start ~log t =
   let spec = t.specification in
   let open Specification in
+  let secret_name f =
+    String.take
+      (t.id ^ (Digest.string (File_contents_mount.show f) |> Digest.to_hex))
+      55 (* The max is 63 + we want to add "-volume" *)
+  in
   let requests_json =
     `Assoc [
       "memory", (let `GB gb = spec.memory in `String (sprintf "%dG" gb));
@@ -106,7 +104,7 @@ let start ~log t =
               "apiVersion", `String "v1";
               "kind", `String "Secret";
               "metadata", `Assoc [
-                "name", `String (File_contents_mount.id f);
+                "name", `String (secret_name f);
               ];
               "data", `Assoc [
                 Filename.basename (File_contents_mount.path f),
@@ -120,16 +118,16 @@ let start ~log t =
           "apiVersion", `String "v1";
           "kind", `String "Pod";
           "metadata", `Assoc [
-            "name", `String spec.id;
+            "name", `String t.id;
             "labels", `Assoc [
-              "app", `String spec.id;
+              "app", `String t.id;
             ];
           ];
           "spec", `Assoc [
             "restartPolicy", `String "Never";
             "containers", `List [
               `Assoc [
-                "name", `String (spec.id ^ "container");
+                "name", `String (t.id ^ "container");
                 "image", `String spec.image;
                 "command", `List (List.map spec.command ~f:(fun s -> `String s));
                 "volumeMounts",
@@ -137,7 +135,7 @@ let start ~log t =
                   List.map spec.volume_mounts ~f:(function
                     | `Constant f ->
                       `Assoc [
-                        "name", `String (File_contents_mount.id f ^ "-volume");
+                        "name", `String (secret_name f ^ "-volume");
                         "readOnly", `Bool true;
                         "mountPath", `String (Filename.dirname
                                                 (File_contents_mount.path f));
@@ -157,9 +155,9 @@ let start ~log t =
               List.map spec.volume_mounts ~f:(function
                 | `Constant f ->
                   `Assoc [
-                    "name", `String (File_contents_mount.id f ^ "-volume");
+                    "name", `String (secret_name f ^ "-volume");
                     "secret", `Assoc [
-                      "secretName",  `String (File_contents_mount.id f);
+                      "secretName",  `String (secret_name f);
                     ]
                   ]   
                 | `Nfs m ->
@@ -208,8 +206,7 @@ let get_logs ~log t =
 
 
 let kill ~log t =
-  let spec = t.specification in
-  let cmd = sprintf "kubectl delete pod %s" spec.Specification.id in
+  let cmd = sprintf "kubectl delete pod %s" t.id in
   command_must_succeed ~log t cmd
 
 let get_status_json ~log t =

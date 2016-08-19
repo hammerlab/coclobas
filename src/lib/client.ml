@@ -40,8 +40,12 @@ let submit_kube_job {base_url} spec =
       (Kube_job.Specification.to_yojson spec |> Yojson.Safe.pretty_to_string) 
   in
   wrap_io (fun () -> Cohttp_lwt_unix.Client.post uri ~body)
-  >>= fun (resp, body) ->
+  >>= fun (resp, ret_body) ->
   response_is_ok  resp ~meth:`Post ~uri
+  >>= fun () ->
+  wrap_io (fun () -> Cohttp_lwt_body.to_string ret_body)
+  >>= fun id ->
+  return id
 
 let get_kube_job_jsons {base_url} ~path ~ids ~json_key ~of_yojson =
   let uri = uri_of_ids base_url path ids in

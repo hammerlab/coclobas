@@ -12,7 +12,7 @@ let () =
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
             Coclobas.Kube_job.Specification.(
-              fresh ~image:"ubuntu"
+              make ~image:"ubuntu"
                 ["ls"; "-la"]
             )
         )
@@ -24,7 +24,7 @@ let () =
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
             Coclobas.Kube_job.Specification.(
-              fresh ~image:"ubuntu"
+              make ~image:"ubuntu"
                 ["exit"; "1"]
             )
         )
@@ -38,10 +38,8 @@ let () =
             Coclobas.Kube_job.Specification.(
               let path = "/ketrewkube/hello-world" in
               let cool_file =
-                File_contents_mount.fresh
-                  ~path "Hello world!"
-              in
-              fresh ~image:"ubuntu"
+                File_contents_mount.make ~path "Hello world!" in
+              make ~image:"ubuntu"
                 ~volume_mounts:[`Constant cool_file]
                 ["bash"; "-c";
                  sprintf "ls -la %s ;\
