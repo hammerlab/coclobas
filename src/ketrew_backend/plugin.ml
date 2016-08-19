@@ -6,9 +6,14 @@ let name = "coclobas-kube"
 
 module Run_parameters = struct
 
+  type running = {
+    client: Client.t;
+    specification: Kube_job.Specification.t;
+    job_id: string;
+  } [@@deriving yojson, show]
   type t = [
     | `Created of Client.t * Kube_job.Specification.t
-    | `Running of Client.t * Kube_job.Specification.t * string
+    | `Running of running
   ] [@@deriving yojson, show]
 
   let serialize run_parameters =
@@ -82,11 +87,11 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Running _ ->
         ksprintf KLRU.fail_fatal "start on already running: %s"
           (Run_parameters.show rp)
-      | `Created (client, spec) ->
+      | `Created (client, specification) ->
         classify_client_error begin
-          Client.submit_kube_job client spec
-          >>= fun id ->
-          return (`Running (client, spec, id))
+          Client.submit_kube_job client specification
+          >>= fun job_id ->
+          return (`Running {client; specification; job_id})
         end
 
   let running rp f =
@@ -94,8 +99,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     | `Created _ ->
       ksprintf KLRU.fail_fatal "update on not started: %s"
         (Run_parameters.show rp)
-    | `Running (client, spec, id) ->
-      f id client spec
+    | `Running {client; specification; job_id} ->
+      f job_id client specification
 
   let update :
     run_parameters ->
@@ -152,10 +157,10 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       match rp with
       | `Created c ->
         ("status", s "Created") :: common c
-      | `Running (cli, spec, id) ->
+      | `Running {client; specification; job_id} ->
         ("status", s "Running")
-        :: ("id", s id)
-        :: common (cli, spec)
+        :: ("id", s job_id)
+        :: common (client, specification)
 
   let additional_queries :
     run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
@@ -189,7 +194,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     (string, Ketrew_pure.Internal_pervasives.Log.t) Deferred_result.t =
     fun rp ~host_io query ->
       let open Ketrew_pure.Internal_pervasives.Log in
-      let (`Created (client, jobspec) | `Running (client, jobspec, _)) = rp in
+      let (`Created (client, jobspec)
+          | `Running {client; specification = jobspec; _}) = rp in
       match query, rp with
       | "display", _ ->
         return (
@@ -204,10 +210,10 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         client_query begin
           Coclobas.Client.get_server_status_string client
         end
-      | "job-status", `Running (_, _, id) ->
+      | "job-status", `Running {job_id; _} ->
         client_query begin
           Client.get_kube_job_statuses client
-            [id]
+            [job_id]
           >>= fun l ->
           let rendered =
             List.map l ~f:(fun (id, s) ->
@@ -216,9 +222,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           in
           return rendered
         end
-      | "kubectl-describe" , `Running (_, _, id) ->
+      | "kubectl-describe" , `Running {job_id; _} ->
         client_query begin
-          Client.get_kube_job_descriptions client [id]
+          Client.get_kube_job_descriptions client [job_id]
           >>= fun l ->
           let rendered =
             List.map l ~f:(fun (id, s) ->
@@ -227,9 +233,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           in
           return rendered
         end
-      | "kubectl-logs", `Running (_, _, id) ->
+      | "kubectl-logs", `Running {job_id; _} ->
         client_query begin
-          Client.get_kube_job_logs client [id]
+          Client.get_kube_job_logs client [job_id]
           >>= fun l ->
           let rendered =
             List.map l ~f:(fun (id, s) ->
