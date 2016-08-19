@@ -13,8 +13,14 @@ type t = {
   mutable jobs: Job.t list;
   storage: Storage.t;
   log: Log.t;
-  mutable job_list_mutex: Lwt_mutex.t option;
+  job_list_mutex: Lwt_mutex.t;
 } [@@deriving make]
+
+let create ~port ~root ~cluster ~storage ~log =
+  let job_list_mutex = Lwt_mutex.create () in
+  make ()
+    ~job_list_mutex
+    ~port ~root ~cluster ~storage ~log
 
 let log_event t e =
   let json_event name moar_json = 
@@ -72,9 +78,7 @@ let log_event t e =
   Log.log t.log ~section:["server"; subsection] json
 
 let change_job_list t action =
-  let mutex =
-    Option.value_exn t.job_list_mutex ~msg:"job_list_mutex!! not initialized?" in
-  Lwt_mutex.with_lock mutex begin fun () ->
+  Lwt_mutex.with_lock t.job_list_mutex begin fun () ->
     begin match action with
     | `Add j -> t.jobs <- j :: t.jobs
     | `Remove j ->
@@ -211,12 +215,6 @@ let rec loop:
     loop ~and_sleep t
 
 let initialization t =
-  begin match t.job_list_mutex with
-  | Some s -> ()
-  | None ->
-    let m = Lwt_mutex.create () in
-    t.job_list_mutex <- Some m;
-  end;
   Cluster.ensure_living ~log:t.log t.cluster
   >>= fun () ->
   get_job_list t
