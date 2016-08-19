@@ -2,14 +2,13 @@ open Internal_pervasives
 
 type t
 
-val make :
+val create :
   port:int ->
-  ?status:[ `Initializing | `Ready ] ->
   root:string ->
   cluster:Kube_cluster.t ->
-  ?jobs:Kube_job.t list ->
   storage:Storage.t ->
-  log:Log.t -> ?job_list_mutex:Lwt_mutex.t -> unit -> t
+  log:Log.t ->
+  t
 
 val start: t ->
   (unit,

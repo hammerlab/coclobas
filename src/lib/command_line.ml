@@ -27,7 +27,7 @@ let start_server ~root ~port =
   Kube_cluster.get storage
   >>= fun cluster ->
   let log = log root in
-  let server = Server.make ~storage ~log ~root ~cluster ~port () in
+  let server = Server.create ~storage ~log ~root ~cluster ~port in
   Server.start server
 
 

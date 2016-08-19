@@ -13,8 +13,17 @@ type t = {
   mutable jobs: Job.t list;
   storage: Storage.t;
   log: Log.t;
-  mutable job_list_mutex: Lwt_mutex.t option;
+  job_list_mutex: Lwt_mutex.t;
+  kick_loop: unit Lwt_condition.t;
 } [@@deriving make]
+
+let create ~port ~root ~cluster ~storage ~log =
+  let job_list_mutex = Lwt_mutex.create () in
+  let kick_loop = Lwt_condition.create () in
+  make ()
+    ~job_list_mutex
+    ~kick_loop
+    ~port ~root ~cluster ~storage ~log
 
 let log_event t e =
   let json_event name moar_json = 
@@ -47,9 +56,10 @@ let log_event t e =
              | `Update j -> stringf "update %s" (Job.id j)));
         "jobs", current_jobs ();
       ]
-    | `Loop_ends errors ->
+    | `Loop_ends (sleep, errors) ->
       "loop",
       json_event "loop-ends" [
+        "sleep", `Float sleep;
         "errors", `List (List.map errors ~f:(fun x ->
             `String (Error.to_string x)));
         "jobs", current_jobs ();
@@ -71,9 +81,7 @@ let log_event t e =
   Log.log t.log ~section:["server"; subsection] json
 
 let change_job_list t action =
-  let mutex =
-    Option.value_exn t.job_list_mutex ~msg:"job_list_mutex!! not initialized?" in
-  Lwt_mutex.with_lock mutex begin fun () ->
+  Lwt_mutex.with_lock t.job_list_mutex begin fun () ->
     begin match action with
     | `Add j -> t.jobs <- j :: t.jobs
     | `Remove j ->
@@ -120,11 +128,16 @@ let incoming_job t string =
   >>= fun () ->
   change_job_list t (`Add job)
   >>= fun () ->
+  Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
+let min_sleep = 3.
+let max_sleep = 180.
+
 let rec loop:
+  ?and_sleep : float ->
   t -> (unit, [ `Storage of Storage.Error.common ]) Deferred_result.t
-  = fun t ->
+  = fun ?(and_sleep = min_sleep) t ->
     let now () = Unix.gettimeofday () in
     let todo =
       List.fold t.jobs ~init:[] ~f:(fun prev j ->
@@ -186,7 +199,7 @@ let rec loop:
     >>= fun ((_ : unit list),
              (* We make sure only really fatal errors “exit the loop:” *)
              (errors : [ `Storage of Storage.Error.common ] list)) ->
-    log_event t (`Loop_ends errors)
+    log_event t (`Loop_ends (and_sleep, errors))
     >>= fun () ->
     begin match errors with
     | [] -> return ()
@@ -197,17 +210,18 @@ let rec loop:
       exit 5
     end
     >>= fun () ->
-    (Pvem_lwt_unix.System.sleep 3. >>< fun _ -> return ())
-    >>= fun () ->
-    loop t
+    Deferred_list.pick_and_cancel [
+      (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return false);
+      Lwt.(Lwt_condition.wait t.kick_loop >>= fun () -> return (`Ok true));
+    ]
+    >>= fun kicked ->
+    let and_sleep =
+      match todo, kicked with
+      | [], false -> min max_sleep (and_sleep *. 2.)
+      | _, _ -> min_sleep in
+    loop ~and_sleep t
 
 let initialization t =
-  begin match t.job_list_mutex with
-  | Some s -> ()
-  | None ->
-    let m = Lwt_mutex.create () in
-    t.job_list_mutex <- Some m;
-  end;
   Cluster.ensure_living ~log:t.log t.cluster
   >>= fun () ->
   get_job_list t
@@ -306,6 +320,9 @@ let start t =
               | `Ready -> "Ready"
             in
             Coserver.respond_string ~status:`OK ~body ()
+          | "/kick" ->
+            Lwt_condition.broadcast t.kick_loop ();
+            respond_result (return (`Ok `Done))
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
