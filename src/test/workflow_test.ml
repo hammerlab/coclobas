@@ -38,9 +38,7 @@ let () =
             Coclobas.Kube_job.Specification.(
               let path = "/ketrewkube/hello-world" in
               let cool_file =
-                File_contents_mount.fresh
-                  ~path "Hello world!"
-              in
+                File_contents_mount.make ~path "Hello world!" in
               make ~image:"ubuntu"
                 ~volume_mounts:[`Constant cool_file]
                 ["bash"; "-c";

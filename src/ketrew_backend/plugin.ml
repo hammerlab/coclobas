@@ -28,7 +28,7 @@ let create ~base_url spec =
 let run_program ~base_url ~image ?(volume_mounts = []) p =
   let script_path = "/coclo-kube/mount/script" in
   let script =
-    Kube_job.Specification.File_contents_mount.fresh
+    Kube_job.Specification.File_contents_mount.make
       ~path:script_path
       Ketrew_pure.Monitored_script.(
         create p

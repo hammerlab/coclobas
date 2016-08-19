@@ -20,11 +20,9 @@ module Specification : sig
     val read_only : t -> bool
   end
   module File_contents_mount : sig
-    type t = { id : string; path : string; contents : string; }
+    type t = { path : string; contents : string; }
     val show : t -> Ppx_deriving_runtime.string
-    val make : id:string -> path:string -> string -> t
-    val fresh : path:string -> string -> t
-    val id : t -> string
+    val make : path:string -> string -> t
     val path : t -> string
     val contents : t -> string
   end

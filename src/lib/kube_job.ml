@@ -18,14 +18,9 @@ module Specification = struct
   end
   module File_contents_mount = struct
     type t = {
-      id: string;
       path: string;
       contents: string [@main];
     } [@@deriving yojson, show, make]
-    let fresh ~path contents =
-      let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-      make ~id ~path contents
-    let id t = t.id
     let path t = t.path
     let contents t = t.contents
   end
@@ -90,6 +85,11 @@ let command_must_succeed_with_output ~log ?additional_json job cmd =
 let start ~log t =
   let spec = t.specification in
   let open Specification in
+  let secret_name f =
+    String.take
+      (t.id ^ (Digest.string (File_contents_mount.show f) |> Digest.to_hex))
+      55 (* The max is 63 + we want to add "-volume" *)
+  in
   let requests_json =
     `Assoc [
       "memory", (let `GB gb = spec.memory in `String (sprintf "%dG" gb));
@@ -104,7 +104,7 @@ let start ~log t =
               "apiVersion", `String "v1";
               "kind", `String "Secret";
               "metadata", `Assoc [
-                "name", `String (File_contents_mount.id f);
+                "name", `String (secret_name f);
               ];
               "data", `Assoc [
                 Filename.basename (File_contents_mount.path f),
@@ -135,7 +135,7 @@ let start ~log t =
                   List.map spec.volume_mounts ~f:(function
                     | `Constant f ->
                       `Assoc [
-                        "name", `String (File_contents_mount.id f ^ "-volume");
+                        "name", `String (secret_name f ^ "-volume");
                         "readOnly", `Bool true;
                         "mountPath", `String (Filename.dirname
                                                 (File_contents_mount.path f));
@@ -155,9 +155,9 @@ let start ~log t =
               List.map spec.volume_mounts ~f:(function
                 | `Constant f ->
                   `Assoc [
-                    "name", `String (File_contents_mount.id f ^ "-volume");
+                    "name", `String (secret_name f ^ "-volume");
                     "secret", `Assoc [
-                      "secretName",  `String (File_contents_mount.id f);
+                      "secretName",  `String (secret_name f);
                     ]
                   ]   
                 | `Nfs m ->
