@@ -1,7 +1,7 @@
 # We want `ocaml`, `opam`, and the `biokepi` user:
 FROM hammerlab/biokepi-run
 
-# `opam` is the user with `sudo` powers
+# `opam` is the user with `sudo` powers, and the local `opam-repository`
 USER opam
 ENV HOME /home/opam
 WORKDIR /home/opam
@@ -9,7 +9,7 @@ WORKDIR /home/opam
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS true
 RUN bash -c 'curl https://sdk.cloud.google.com | bash'
 
-RUN sudo apt-get install zlib1g-dev
+RUN sudo apt-get install -y zlib1g-dev screen
 RUN opam install --yes tlstunnel
 RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
 RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
