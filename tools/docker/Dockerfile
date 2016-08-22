@@ -11,5 +11,5 @@ RUN bash -c 'curl https://sdk.cloud.google.com | bash'
 
 RUN sudo apt-get install zlib1g-dev
 RUN opam install --yes tlstunnel
-RUN opam pin add solvuu-build https://github.com/solvuu/solvuu-build.git
-RUN opam pin add coclobas https://github.com/hammerlab/coclobas.git
+RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
+RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
