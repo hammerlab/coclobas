@@ -41,6 +41,10 @@ if [ "$TOKEN" = "" ] ; then
     echo "Error: \$TOKEN is not set"
     exit 3
 fi
+if [ "$CLUSTER_MAX_NODES" = "" ] ; then
+    echo "Error: \$CLUSTER_MAX_NODES is not set"
+    exit 3
+fi
 if [ "$NFS_MOUNTS" = "" ] ; then
     echo "Warning: \$MOUNT_NFS is not set, your cluster is going to be useless"
 fi
