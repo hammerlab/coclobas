@@ -2,6 +2,16 @@
 
 set -e
 
+usage () {
+    echo "Usage: bash please.sh <config-file> <command>"
+    echo ""
+    echo "where <command> may be:"
+    echo ""
+    echo "- start_all: mount_all + start screen session with everything"
+    echo "- mount_all: mount all the NFS mounts"
+    echo ""
+}
+
 if [ -f "$1" ]; then
     export PATH=$PATH:.
     export config_file=$1
@@ -9,8 +19,32 @@ if [ -f "$1" ]; then
     shift
 else
     echo "Argument \$1 should be a configuration file"
+    usage
     exit 2
 fi
+case $1 in
+    ""|help|"-h"|"--help" )
+        usage
+        exit 0;;
+    * ) echo "Let's do this …" ;;
+esac
+
+if [ "$CLUSTER_NAME" = "" ] || [ "$CLUSTER_NAME" = "kocluster" ]; then
+    echo "Error: \$CLUSTER_NAME is not set or has an unacceptable value: $CLUSTER_NAME"
+    exit 3
+fi
+if [ "$GCLOUD_ZONE" = "" ] ; then
+    echo "Error: \$GCLOUD_ZONE is not set"
+    exit 3
+fi
+if [ "$TOKEN" = "" ] ; then
+    echo "Error: \$TOKEN is not set"
+    exit 3
+fi
+if [ "$NFS_MOUNTS" = "" ] ; then
+    echo "Warning: \$MOUNT_NFS is not set, your cluster is going to be useless"
+fi
+
 
 mount_nfs () {
     local host=$1
@@ -75,6 +109,7 @@ start_tlstunnel () {
 }
 
 start_all () {
+    mount_all
     if [ -f ~/.screenrc ]; then
         cat ~/.screenrc > screenrc
     else
