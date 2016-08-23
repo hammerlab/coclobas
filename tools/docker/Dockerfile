@@ -13,3 +13,6 @@ RUN sudo apt-get install -y zlib1g-dev screen nfs-common
 RUN opam install --yes tlstunnel
 RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
 RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
+
+COPY please.sh .
+
