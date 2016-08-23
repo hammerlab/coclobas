@@ -8,7 +8,7 @@ WORKDIR /home/opam
 
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS true
 RUN bash -c 'curl https://sdk.cloud.google.com | bash'
-RUN gcloud components install kubectl
+RUN bash -c 'gcloud components install kubectl'
 
 RUN sudo apt-get install -y zlib1g-dev screen nfs-common
 RUN opam install --yes tlstunnel
