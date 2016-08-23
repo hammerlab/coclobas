@@ -2,16 +2,24 @@ Docker Container To Play With Coclobas
 ======================================
 
 
+Usage
+-----
 
-So far:
+Get the container ready:
 
     sudo docker pull hammerlab/coclobas:Add-Dockerfile
-    sudo docker run -it -p 443:443 --privileged hammerlab/coclobas:Add-Dockerfile bash
-
+    sudo mkdir -p /tmp/coclo
+    sudo chmod 777 /tmp/coclo
+    sudo docker run -it -p 443:443  -v /tmp/coclo:/coclo --privileged hammerlab/coclobas:Add-Dockerfile bash
 
 - `--privileged` is for NFS mounting
 - `-p 443:443` is to pass the port 443 to the container
 
+Put your `configuration.env` in `/tmp/coclo` (or `/coclo` if you edit it from
+the container), and then if all goes well you can mount & start everything with:
+
+    bash please.sh /coclo/configuration.env start_all
+    
 
 
 Warnings
