@@ -7,10 +7,10 @@ Usage
 
 Get the container ready:
 
-    sudo docker pull hammerlab/coclobas:Add-Dockerfile
+    sudo docker pull hammerlab/coclobas
     sudo mkdir -p /tmp/coclo
     sudo chmod 777 /tmp/coclo
-    sudo docker run -it -p 443:443  -v /tmp/coclo:/coclo --privileged hammerlab/coclobas:Add-Dockerfile bash
+    sudo docker run -it -p 443:443  -v /tmp/coclo:/coclo --privileged hammerlab/coclobas bash
 
 - `--privileged` is for NFS mounting
 - `-p 443:443` is to pass the port 443 to the container
