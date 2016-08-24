@@ -11,6 +11,8 @@ val log :
   (unit,
    [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
+val empty: t ->
+  (unit, [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val debug_sections : string list list ref
 (** Catch sections and display them on ["stdout"], cf. the [?section] argument of {!log}.

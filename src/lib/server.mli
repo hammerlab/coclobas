@@ -15,12 +15,6 @@ val start: t ->
    [> `Shell of
         string *
         [> `Exited of int | `Exn of exn | `Signaled of int | `Stopped of int ]
-   | `Storage of
-        [> `Exn of exn
-        | `Init_mkdir of
-             [ `Exited of int
-             | `Exn of exn
-             | `Signaled of int
-             | `Stopped of int ]
-        | `Missing_data of string
-        | `Of_json of string ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common
+                 | `Missing_data of string
+                 | `Of_json of string ] ]) Deferred_result.t

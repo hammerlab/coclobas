@@ -10,21 +10,24 @@ type key = Store.key
 type value = Store.value
 type t = {
   root: string;
-  mutable store: (string -> Store.t) option
+  mutable store: (string -> Store.t) option;
+  store_mutex: Lwt_mutex.t; (* most operations already have a lock in Irmin *)
 }
 
-let make root = {root; store = None}
+let make root = {root; store = None; store_mutex = Lwt_mutex.create ()}
 
 let wrap lwt =
   Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn e))
 
 let init {root; _} =
   begin
-    ksprintf Pvem_lwt_unix.System.Shell.do_or_fail "mkdir -p %s" root
+    Pvem_lwt_unix.System.ensure_directory_path root
     >>< function
     | `Ok () -> return ()
-    | `Error (`Shell (_, status)) ->
-      fail (`Storage (`Init_mkdir status))
+    | `Error (`System _ as syserror) ->
+      fail (`Storage (`Init_mkdir (
+          `Path root,
+          `Error (Pvem_lwt_unix.System.error_to_string syserror))))
   end
   >>= fun () ->
   let config = Irmin_unix.Irmin_git.config ~root ~bare:true () in
@@ -32,7 +35,7 @@ let init {root; _} =
   >>= fun repo ->
   wrap (fun () -> Store.master Irmin_unix.task repo)
 
-let get_store t msg =
+let get_store_no_mutex t msg =
   match t.store with
   | Some f -> return (f msg)
   | None ->
@@ -41,23 +44,45 @@ let get_store t msg =
     t.store <- Some store;
     return (store msg)
 
+let on_store t msg ~f =
+  Lwt_mutex.with_lock t.store_mutex begin fun () ->
+    get_store_no_mutex t msg
+    >>= fun s ->
+    f s
+  end
+
 let update t k v =
   let msg = sprintf "Update /%s" (String.concat ~sep:"/" k) in
-  get_store t msg
-  >>= fun s ->
-  wrap (fun () -> Store.update s k v)
+  on_store t msg ~f:(fun s ->
+      wrap (fun () -> Store.update s k v))
 
 let read t k =
   let msg = sprintf "Read /%s" (String.concat ~sep:"/" k) in
-  get_store t msg
-  >>= fun s ->
-  wrap (fun () -> Store.read s k)
+  on_store t msg ~f:(fun s ->
+      wrap (fun () -> Store.read s k))
 
 let list t k =
   let msg = sprintf "List /%s" (String.concat ~sep:"/" k) in
-  get_store t msg
-  >>= fun s ->
-  wrap (fun () -> Store.list s k)
+  on_store t msg ~f:(fun s ->
+      wrap (fun () -> Store.list s k))
+
+let empty t =
+  Lwt_mutex.with_lock t.store_mutex begin fun () ->
+    begin
+      Pvem_lwt_unix.System.remove t.root
+      >>< function
+      | `Ok () -> return ()
+      | `Error (`System _ as syserror) ->
+        fail (`Storage (`Empty (`Removing (
+            `Path t.root,
+            `Error (Pvem_lwt_unix.System.error_to_string syserror)))))
+    end
+    >>= fun () ->
+    get_store_no_mutex t "Removed"
+    >>= fun _ ->
+    return ()
+  end
+
 
 module Json = struct
   let of_yojson_error = function
@@ -84,18 +109,18 @@ end
 module Error = struct
   type common = [
     | `Exn of exn
-    | `Init_mkdir of
-        [ `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ] ]
+    | `Init_mkdir of [ `Path of string ] * [ `Error of string ]
+    | `Empty of 
+        [ `Removing of [ `Path of string ] * [ `Error of string ] ]
+  ]
   let to_string =
     function
     | `Exn _ as e -> Generic_error.to_string e
     | `Of_json s -> s
     | `Missing_data s -> sprintf "Missing data: %s" s
-    | `Init_mkdir s ->
-      sprintf "Initialization: mkdir failed: %s"
-        (Pvem_lwt_unix.System.Shell.status_to_string s)
+    | `Init_mkdir (`Path p, `Error e) ->
+      sprintf "Initialization: mkdir of %S failed: %s" p e
+    | `Empty (`Removing (`Path p, `Error e)) ->
+      sprintf "Emptying: removal of %S failed: %s" p e
 end
 

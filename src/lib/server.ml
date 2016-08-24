@@ -302,6 +302,11 @@ let job_ids_of_uri uri =
   Uri.query uri
   |> List.concat_map ~f:(function | ("id", l) -> l | _ -> [])
 
+let empty_logs t =
+  Log.empty t.log
+  >>= fun () ->
+  return `Done
+
 let start t =
   let condition = Lwt_condition.create () in
   let server_thread () =
@@ -324,6 +329,8 @@ let start t =
           | "/kick" ->
             Lwt_condition.broadcast t.kick_loop ();
             respond_result (return (`Ok `Done))
+          | "/empty-logs" ->
+            empty_logs t |> respond_result
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
