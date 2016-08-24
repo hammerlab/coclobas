@@ -20,6 +20,11 @@ let () =
           String.split ~on:(`Character '/') p |> List.filter ~f:((<>) ""))
   with _ -> ()
 
+let empty =
+  function
+  | `Silent -> return ()
+  | `Stored s -> Storage.empty s.storage
+
 let log ?(section = ["main"]) t json =
   match t with
   | `Silent -> return ()
