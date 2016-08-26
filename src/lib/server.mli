@@ -12,9 +12,7 @@ val create :
 
 val start: t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int | `Exn of exn | `Signaled of int | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common
                  | `Missing_data of string
                  | `Of_json of string ] ]) Deferred_result.t

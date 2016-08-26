@@ -29,58 +29,33 @@ val gcloud_start :
   log:Log.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val gcloud_delete :
   log:Log.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val gcloud_describe :
   log:Log.t ->
   t ->
   (string * string,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val gcloud_set_current :
   log:Log.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val ensure_living :
   log:Log.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
