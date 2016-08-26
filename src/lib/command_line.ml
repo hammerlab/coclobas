@@ -108,7 +108,10 @@ let main () =
           ] in
           required
           & pos 0 (some (enum actions)) None
-          & info [] ~doc:"Action to do on the current cluster")
+          & info [] ~doc:"Action to do on the current cluster:\
+                         \ {start,describe,delete}."
+            ~docv:"ACTION"
+        )
     in
     let info = Term.(info "cluster" ~doc:"Manage the configured cluster") in
     (term, info) in
