@@ -17,8 +17,20 @@ let cluster ~root action =
   >>= fun cluster ->
   let log = log ~root in
   begin match action with
-  | `Start -> Kube_cluster.gcloud_start ~log cluster
-  | `Delete -> Kube_cluster.gcloud_delete ~log cluster
+  | `Start ->
+    Kube_cluster.gcloud_start ~log cluster
+    >>= fun () ->
+    printf "Cluster %s@%s: Started\n%!"
+      cluster.Kube_cluster.name
+      cluster.Kube_cluster.zone;
+    return ()
+  | `Delete ->
+    Kube_cluster.gcloud_delete ~log cluster
+    >>= fun () ->
+    printf "Cluster %s@%s: Deleted\n%!"
+      cluster.Kube_cluster.name
+      cluster.Kube_cluster.zone;
+    return ()
   | `Describe ->
     Kube_cluster.gcloud_describe ~log cluster
     >>= fun (out, err) ->
