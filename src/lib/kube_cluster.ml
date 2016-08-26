@@ -25,6 +25,13 @@ let command_must_succeed ~log cluster cmd =
       "cluster", to_yojson cluster
     ]
 
+let command_must_succeed_with_output ~log cluster cmd =
+  Hyper_shell.command_must_succeed_with_output ~log cmd
+    ~section:["cluster"; "commands"]
+    ~additional_json:[
+      "cluster", to_yojson cluster
+    ]
+
 let gcloud_start ~log t =
   let cmd =
     sprintf 
@@ -47,7 +54,7 @@ let gcloud_describe ~log t =
   let cmd =
     sprintf 
       "gcloud container clusters describe %s --zone %s" t.name t.zone in
-  command_must_succeed ~log t cmd
+  command_must_succeed_with_output ~log t cmd
 
 let gcloud_set_current ~log t =
   let cmd =
@@ -58,7 +65,7 @@ let gcloud_set_current ~log t =
 let ensure_living ~log t =
   gcloud_describe ~log t
   >>< begin function
-  | `Ok () ->
+  | `Ok _ ->
     gcloud_set_current ~log t
   | `Error (`Shell (_, `Exited 1)) ->
     gcloud_start ~log t

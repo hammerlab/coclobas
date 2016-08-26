@@ -19,7 +19,11 @@ let cluster ~root action =
   begin match action with
   | `Start -> Kube_cluster.gcloud_start ~log cluster
   | `Delete -> Kube_cluster.gcloud_delete ~log cluster
-  | `Describe -> Kube_cluster.gcloud_describe ~log cluster
+  | `Describe ->
+    Kube_cluster.gcloud_describe ~log cluster
+    >>= fun (out, err) ->
+    printf "OUT:\n%s\nERR:\n%s\n%!" out err;
+    return ()
   end
 
 let start_server ~root ~port =

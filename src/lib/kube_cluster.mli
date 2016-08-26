@@ -52,7 +52,7 @@ val gcloud_delete :
 val gcloud_describe :
   log:Log.t ->
   t ->
-  (unit,
+  (string * string,
    [> `Shell of
         string *
         [> `Exited of int
