@@ -12,25 +12,29 @@ type t = {
   root: string;
   mutable store: (string -> Store.t) option;
   store_mutex: Lwt_mutex.t; (* most operations already have a lock in Irmin *)
+  gzip_level: int;
 }
 
-let make root = {root; store = None; store_mutex = Lwt_mutex.create ()}
+let make ?(gzip_level = 1) root =
+  {root; store = None; store_mutex = Lwt_mutex.create (); gzip_level}
 
 let wrap lwt =
   Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn e))
 
-let init {root; _} =
+let init t =
   begin
-    Pvem_lwt_unix.System.ensure_directory_path root
+    Pvem_lwt_unix.System.ensure_directory_path t.root
     >>< function
     | `Ok () -> return ()
     | `Error (`System _ as syserror) ->
       fail (`Storage (`Init_mkdir (
-          `Path root,
+          `Path t.root,
           `Error (Pvem_lwt_unix.System.error_to_string syserror))))
   end
   >>= fun () ->
-  let config = Irmin_unix.Irmin_git.config ~root ~bare:true () in
+  let config =
+    Irmin_unix.Irmin_git.config ~root:t.root ~level:t.gzip_level ~bare:true ()
+  in
   wrap (fun () -> Store.Repo.create config)
   >>= fun repo ->
   wrap (fun () -> Store.master Irmin_unix.task repo)
