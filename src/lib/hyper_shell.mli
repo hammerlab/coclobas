@@ -16,7 +16,7 @@ val command_must_succeed_with_output :
   string ->
   (string * string,
    [> `Shell_command of Error.t
-   | `Storage of [> Storage.Error.common] ])
+   | `Log of Log.Error.t ])
     Internal_pervasives.Deferred_result.t
 
 val command_must_succeed :
@@ -26,5 +26,5 @@ val command_must_succeed :
   string ->
   (unit,
    [> `Shell_command of Error.t
-   | `Storage of [> Storage.Error.common ] ])
+   | `Log of Log.Error.t ])
     Internal_pervasives.Deferred_result.t

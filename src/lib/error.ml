@@ -7,6 +7,7 @@ let to_string =
   | `Shell_command e ->
     sprintf "Shell-command failed:\n%s" (Hyper_shell.Error.to_display_string e)
   | `Storage e -> Storage.Error.to_string e
+  | `Log e -> Log.Error.to_string e
   | `IO (`Write_file_exn (path, e)) ->
     sprintf "Writing file %S: %s" path (exn e)
   | `IO (`Read_file_exn (path, e)) ->

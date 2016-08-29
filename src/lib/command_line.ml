@@ -4,8 +4,7 @@ let (//) = Filename.concat
 let db ~root =
   Storage.make (root // "db")
 let log ~root =
-  let st = Storage.make (root // "logs") in
-  Log.stored st
+ Log.file_tree (root // "logs")
 
 let configure ~root ~cluster =
   let storage = db ~root in
