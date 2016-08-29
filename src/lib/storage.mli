@@ -18,7 +18,7 @@ module Error : sig
     string
 end
 
-val make : string -> t
+val make : ?gzip_level:int -> string -> t
 
 val update : t -> key -> value ->
   (unit,
