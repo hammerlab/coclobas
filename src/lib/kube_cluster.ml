@@ -70,6 +70,6 @@ let ensure_living ~log t =
   | `Error (`Shell_command error)
     when error.Hyper_shell.Error.status = Some (`Exited 1) ->
     gcloud_start ~log t
-  | `Error ((`Shell_command _ | `Storage _) as e) ->
+  | `Error ((`Shell_command _ | `Log _) as e) ->
     fail e
   end

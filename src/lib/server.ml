@@ -135,8 +135,7 @@ let min_sleep = 3.
 let max_sleep = 180.
 
 let rec loop:
-  ?and_sleep : float ->
-  t -> (unit, [ `Storage of Storage.Error.common ]) Deferred_result.t
+  ?and_sleep : float -> t -> (unit, _) Deferred_result.t
   = fun ?(and_sleep = min_sleep) t ->
     let now () = Unix.gettimeofday () in
     let todo =
@@ -198,7 +197,8 @@ let rec loop:
     end
     >>= fun ((_ : unit list),
              (* We make sure only really fatal errors “exit the loop:” *)
-             (errors : [ `Storage of Storage.Error.common ] list)) ->
+             (errors : [ `Storage of Storage.Error.common
+                       | `Log of Log.Error.t ] list)) ->
     log_event t (`Loop_ends (and_sleep, errors))
     >>= fun () ->
     begin match errors with
