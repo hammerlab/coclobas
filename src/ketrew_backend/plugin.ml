@@ -72,6 +72,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
   let classify_client_error m =
     m >>< function
     | `Ok o -> return o
+    | `Error (`Client (`IO_exn _ as cl)) -> fail (`Recoverable (Client.Error.to_string cl))
+    | `Error (`Client (`Response _ as cl)) -> fail (`Recoverable (Client.Error.to_string cl))
     | `Error (`Client cl) -> fail (`Fatal (Client.Error.to_string cl))
     | `Error (`Coclo_plugin (`Expecting_one_status l)) ->
       fail (`Fatal (sprintf "Expecting one status but got: [%s]"
