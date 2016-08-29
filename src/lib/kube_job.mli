@@ -80,57 +80,35 @@ val start :
   t ->
   (unit,
    [> `IO of [> `Write_file_exn of Pvem_lwt_unix.IO.path * exn ]
-   | `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   | `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val describe :
   log:Log.t ->
   t ->
   (string,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val kill :
   log:Log.t ->
   t ->
   (unit,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get_logs:
   log:Log.t ->
   t ->
   (string * string,
-   [> `Shell of
-        string *
-        [> `Exited of int | `Exn of exn | `Signaled of int | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get_status_json :
   log:Log.t ->
   t ->
   (string,
-   [> `Shell of
-        string *
-        [> `Exited of int
-        | `Exn of exn
-        | `Signaled of int
-        | `Stopped of int ]
+   [> `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 module Kube_status : sig
