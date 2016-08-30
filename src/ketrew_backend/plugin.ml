@@ -123,8 +123,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
               return (`Succeeded rp)
             | `Error e ->
               return (`Failed (rp, sprintf "Error-from-coclobas: %s" e))
-            | `Finished (_,`Failed) ->
-              return (`Failed (rp, "job-failed"))
+            | `Finished (_, (`Failed | `Killed)) ->
+              return (`Failed (rp, "job-failed-or-killed"))
             | `Submitted
             | `Started _ -> return (`Still_running rp)
             end

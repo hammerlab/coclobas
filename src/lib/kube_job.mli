@@ -38,7 +38,7 @@ end
 module Status : sig
   type t = [
     | `Error of string
-    | `Finished of float * [ `Failed | `Succeeded ]
+    | `Finished of float * [ `Failed | `Succeeded | `Killed ]
     | `Started of float
     | `Submitted
   ]

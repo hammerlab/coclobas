@@ -11,6 +11,7 @@ type t = {
   root : string;
   mutable cluster : Cluster.t;
   mutable jobs: Job.t list;
+  mutable jobs_to_kill: string list;
   storage: Storage.t;
   log: Log.t;
   job_list_mutex: Lwt_mutex.t;
@@ -52,6 +53,7 @@ let log_event t e =
         "todo", `List 
           (List.map todo ~f:(function
              | `Remove j -> stringf "rm %s" (Job.id j)
+             | `Kill j -> stringf "kill %s" (Job.id j)
              | `Start j -> stringf "start %s" (Job.id j)
              | `Update j -> stringf "update %s" (Job.id j)));
         "jobs", current_jobs ();
@@ -143,16 +145,32 @@ let rec loop:
           match Job.status j with
           | `Error _
           | `Finished _ -> `Remove j :: prev
+          | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
+            `Kill j :: prev
           | `Submitted -> `Start j :: prev
           | `Started time when time +. 30. > now () -> prev
           | `Started _ -> `Update j :: prev
         )
     in
+    t.jobs_to_kill <- [];
     log_event t (`Loop_begins (todo))
     >>= fun () ->
     Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
     | `Remove j ->
       change_job_list t (`Remove j)
+    | `Kill j ->
+      begin
+        Job.kill ~log:t.log j
+        >>< function
+        | `Ok () ->
+          j.Job.status <- `Finished (now (), `Killed);
+          return ()
+        | `Error e ->
+          j.Job.status <- `Error ("Killing failed: " ^ Error.to_string e);
+          return ()
+      end
+      >>= fun () ->
+      Job.save t.storage j
     | `Start j ->
       Job.start ~log:t.log j
       >>< begin function
@@ -162,7 +180,7 @@ let rec loop:
         >>= fun () ->
         return ()
       | `Error e ->
-        j.Job.status <- `Error (Error.to_string e);
+        j.Job.status <- `Error ("Starting failed: " ^ Error.to_string e);
         Job.save t.storage j
         >>= fun () ->
         return ()
@@ -191,7 +209,7 @@ let rec loop:
       end >>< begin function
       | `Ok () -> return ()
       | `Error e ->
-        j.Job.status <- `Error (Error.to_string e);
+        j.Job.status <- `Error ("Updating failed: " ^ Error.to_string e);
         Job.save t.storage j
       end
     end
@@ -272,13 +290,8 @@ let get_job_description t ids =
 
 
 let kill_jobs t ids =
-  Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get t.storage id
-      >>= fun job ->
-      Job.kill ~log:t.log job
-      >>= fun () ->
-      return ())
-  >>= fun _ ->
+  t.jobs_to_kill <- ids @ t.jobs_to_kill;
+  Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
 
