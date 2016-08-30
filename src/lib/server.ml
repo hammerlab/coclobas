@@ -124,7 +124,7 @@ let incoming_job t string =
   Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
   >>= fun spec ->
   let job = Job.fresh spec in
-  Job.save (Storage.make t.root) job
+  Job.save t.storage job
   >>= fun () ->
   change_job_list t (`Add job)
   >>= fun () ->
@@ -158,12 +158,12 @@ let rec loop:
       >>< begin function
       | `Ok () -> 
         j.Job.status <- `Started (now ());
-        Job.save (Storage.make t.root) j
+        Job.save t.storage j
         >>= fun () ->
         return ()
       | `Error e ->
         j.Job.status <- `Error (Error.to_string e);
-        Job.save (Storage.make t.root) j
+        Job.save t.storage j
         >>= fun () ->
         return ()
       end
@@ -179,12 +179,12 @@ let rec loop:
         | { phase = `Unknown }
         | { phase = `Running } ->
           j.Job.status <- `Started (now ());
-          Job.save (Storage.make t.root) j
+          Job.save t.storage j
           >>= fun () ->
           return ()
         | { phase = (`Failed | `Succeeded as phase)} ->
           j.Job.status <- `Finished (now (), phase);
-          Job.save (Storage.make t.root) j
+          Job.save t.storage j
           >>= fun () ->
           return ()
         end
@@ -192,7 +192,7 @@ let rec loop:
       | `Ok () -> return ()
       | `Error e ->
         j.Job.status <- `Error (Error.to_string e);
-        Job.save (Storage.make t.root) j
+        Job.save t.storage j
       end
     end
     >>= fun ((_ : unit list),
@@ -234,7 +234,7 @@ let initialization t =
 
 let get_job_status t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       return (`Assoc [
           "id", `String id;
@@ -245,7 +245,7 @@ let get_job_status t ids =
 
 let get_job_logs t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       Job.get_logs ~log:t.log job
       >>= fun (out, err) ->
@@ -259,7 +259,7 @@ let get_job_logs t ids =
 
 let get_job_description t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       Job.describe ~log:t.log job
       >>= fun descr ->
@@ -273,7 +273,7 @@ let get_job_description t ids =
 
 let kill_jobs t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       Job.kill ~log:t.log job
       >>= fun () ->
