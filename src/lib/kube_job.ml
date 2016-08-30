@@ -36,7 +36,7 @@ module Status = struct
   type t = [
     | `Submitted
     | `Started of float
-    | `Finished of float * [ `Failed | `Succeeded ]
+    | `Finished of float * [ `Failed | `Succeeded | `Killed ]
     | `Error of string
   ] [@@deriving yojson,show ] 
 end

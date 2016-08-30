@@ -11,6 +11,7 @@ type t = {
   root : string;
   mutable cluster : Cluster.t;
   mutable jobs: Job.t list;
+  mutable jobs_to_kill: string list;
   storage: Storage.t;
   log: Log.t;
   job_list_mutex: Lwt_mutex.t;
@@ -52,6 +53,7 @@ let log_event t e =
         "todo", `List 
           (List.map todo ~f:(function
              | `Remove j -> stringf "rm %s" (Job.id j)
+             | `Kill j -> stringf "kill %s" (Job.id j)
              | `Start j -> stringf "start %s" (Job.id j)
              | `Update j -> stringf "update %s" (Job.id j)));
         "jobs", current_jobs ();
@@ -124,7 +126,7 @@ let incoming_job t string =
   Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
   >>= fun spec ->
   let job = Job.fresh spec in
-  Job.save (Storage.make t.root) job
+  Job.save t.storage job
   >>= fun () ->
   change_job_list t (`Add job)
   >>= fun () ->
@@ -143,27 +145,43 @@ let rec loop:
           match Job.status j with
           | `Error _
           | `Finished _ -> `Remove j :: prev
+          | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
+            `Kill j :: prev
           | `Submitted -> `Start j :: prev
           | `Started time when time +. 30. > now () -> prev
           | `Started _ -> `Update j :: prev
         )
     in
+    t.jobs_to_kill <- [];
     log_event t (`Loop_begins (todo))
     >>= fun () ->
     Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
     | `Remove j ->
       change_job_list t (`Remove j)
+    | `Kill j ->
+      begin
+        Job.kill ~log:t.log j
+        >>< function
+        | `Ok () ->
+          j.Job.status <- `Finished (now (), `Killed);
+          return ()
+        | `Error e ->
+          j.Job.status <- `Error ("Killing failed: " ^ Error.to_string e);
+          return ()
+      end
+      >>= fun () ->
+      Job.save t.storage j
     | `Start j ->
       Job.start ~log:t.log j
       >>< begin function
       | `Ok () -> 
         j.Job.status <- `Started (now ());
-        Job.save (Storage.make t.root) j
+        Job.save t.storage j
         >>= fun () ->
         return ()
       | `Error e ->
-        j.Job.status <- `Error (Error.to_string e);
-        Job.save (Storage.make t.root) j
+        j.Job.status <- `Error ("Starting failed: " ^ Error.to_string e);
+        Job.save t.storage j
         >>= fun () ->
         return ()
       end
@@ -179,20 +197,20 @@ let rec loop:
         | { phase = `Unknown }
         | { phase = `Running } ->
           j.Job.status <- `Started (now ());
-          Job.save (Storage.make t.root) j
+          Job.save t.storage j
           >>= fun () ->
           return ()
         | { phase = (`Failed | `Succeeded as phase)} ->
           j.Job.status <- `Finished (now (), phase);
-          Job.save (Storage.make t.root) j
+          Job.save t.storage j
           >>= fun () ->
           return ()
         end
       end >>< begin function
       | `Ok () -> return ()
       | `Error e ->
-        j.Job.status <- `Error (Error.to_string e);
-        Job.save (Storage.make t.root) j
+        j.Job.status <- `Error ("Updating failed: " ^ Error.to_string e);
+        Job.save t.storage j
       end
     end
     >>= fun ((_ : unit list),
@@ -234,7 +252,7 @@ let initialization t =
 
 let get_job_status t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       return (`Assoc [
           "id", `String id;
@@ -245,7 +263,7 @@ let get_job_status t ids =
 
 let get_job_logs t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       Job.get_logs ~log:t.log job
       >>= fun (out, err) ->
@@ -259,7 +277,7 @@ let get_job_logs t ids =
 
 let get_job_description t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
+      Job.get t.storage id
       >>= fun job ->
       Job.describe ~log:t.log job
       >>= fun descr ->
@@ -272,13 +290,8 @@ let get_job_description t ids =
 
 
 let kill_jobs t ids =
-  Deferred_list.while_sequential ids ~f:(fun id ->
-      Job.get (Storage.make t.root) id
-      >>= fun job ->
-      Job.kill ~log:t.log job
-      >>= fun () ->
-      return ())
-  >>= fun _ ->
+  t.jobs_to_kill <- ids @ t.jobs_to_kill;
+  Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
 

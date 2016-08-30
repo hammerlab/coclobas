@@ -86,7 +86,7 @@ let get_kube_job_logs t ids =
       | other -> `Error "Expecting a string (job logs dump)")
 
 let kill_kube_jobs {base_url} ids =
-  let uri = uri_of_ids base_url "job/status" ids in
+  let uri = uri_of_ids base_url "job/kill" ids in
   do_get uri
   >>= fun (resp, body) ->
   response_is_ok resp ~meth:`Get ~uri

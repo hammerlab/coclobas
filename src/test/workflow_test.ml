@@ -59,7 +59,8 @@ let () =
               chain [
                 shf "whoami";
                 shf "hostname";
-                shf "echo \"ketrew playground: $KETREW_PLAYGROUND\""
+                shf "echo \"ketrew playground: $KETREW_PLAYGROUND\"";
+                shf "sleep 60";
               ]
             )
         )
