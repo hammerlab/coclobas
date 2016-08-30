@@ -18,3 +18,6 @@ RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
 COPY please.sh /usr/bin/
 RUN sudo chmod 777 /usr/bin/please.sh
 
+RUN sudo chmod 777 /dev/console
+
+
