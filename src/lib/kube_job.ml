@@ -45,6 +45,7 @@ type t = {
   id: string;
   specification: Specification.t [@main];
   mutable status: Status.t [@default `Submitted];
+  mutable update_errors : string list;
 } [@@deriving yojson, show, make]
 
 let fresh spec =
@@ -73,7 +74,7 @@ let get st job_id =
     ~path:["job"; job_id; "status.json"]
     ~parse:Status.of_yojson
   >>= fun status ->
-  return {id = job_id; specification; status}
+  return {id = job_id; specification; status; update_errors = []}
 
 let command_must_succeed ~log ?additional_json job cmd =
   Hyper_shell.command_must_succeed ~log cmd ?additional_json
