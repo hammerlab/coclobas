@@ -15,5 +15,8 @@ RUN opam install --yes tlstunnel
 RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
 RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
 
-COPY please.sh .
+COPY please.sh /usr/bin/
+RUN sudo chmod 777 /usr/bin/please.sh
+
+
 

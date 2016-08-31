@@ -1,4 +1,4 @@
-#!/use/bin/env bash
+#!/usr/bin/env bash
 
 set -e
 
@@ -94,26 +94,40 @@ start_coclobas () {
     $ccb start-server --root $root --port 8082
 }
 
+tls_config () {
+    if [ -f _fake_tls/privkey-nopass.pem ] ; then
+        echo "TLS cert/key already configured"
+    else
+        ketrew init --config _fake_tls --self-signed
+    fi
+}
+
 start_ketrew () {
     sudo chmod -R 777 .
     sudo chmod -R 777 /tmp/ketrew
-    ketrew init --config _fake_tls --self-signed
     ketrew init --config _ketrew_config --port 8080 --debug 1 --with-tok $TOKEN
     ketrew_bin=`which coclobas-ketrew`
     ketrew_config=_ketrew_config/config.json
     ocaml _ketrew_config/configuration.ml > $ketrew_config
+    sudo chmod -R 777 _ketrew_config
     sudo su biokepi -c "KETREW_CONFIG=$ketrew_config $ketrew_bin start -P server"
 }
 
 start_tlstunnel () {
+    tls_config
     tt=`which tlstunnel`
     sudo $tt --cert _fake_tls/certificate.pem \
          --key _fake_tls/privkey-nopass.pem \
          --backend 127.0.0.1:8080 --frontend :443
 }
 
+access_rights_on_console () {
+    sudo chmod 777 /dev/console
+}
+
 start_all () {
     mount_all
+    access_rights_on_console
     if [ -f ~/.screenrc ]; then
         cat ~/.screenrc > screenrc
     else
@@ -122,9 +136,9 @@ hardstatus alwayslastline "%c   %-w [ %n %t ] %+w"
 ' > screenrc
     fi
     cat >> screenrc <<EOF
-screen -t  Ketrew-server bash please.sh $config_file start_ketrew
-screen -t Coclobas-server bash please.sh $config_file start_coclobas
-screen -t Sudo-tlstunnel bash please.sh $config_file start_tlstunnel
+screen -t  Ketrew-server please.sh $config_file start_ketrew
+screen -t Coclobas-server please.sh $config_file start_coclobas
+screen -t Sudo-tlstunnel please.sh $config_file start_tlstunnel
 screen bash
 EOF
     screen -S ketrewcoclo -c screenrc

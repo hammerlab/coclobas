@@ -18,8 +18,9 @@ Get the container ready:
 Put your `configuration.env` in `/tmp/coclo` (or `/coclo` if you edit it from
 the container), and then if all goes well you can mount & start everything with:
 
-    bash please.sh /coclo/configuration.env start_all
-    
+    cd /coclo/
+    please.sh ./configuration.env start_all
+
 
 
 Warnings
@@ -29,4 +30,3 @@ The environment variable `CLOUDSDK_CORE_DISABLE_PROMPTS` is set to `true`; if
 you want to get back the usual `gcloud` interactiveness you may want to:
 
     unset CLOUDSDK_CORE_DISABLE_PROMPTS
-
