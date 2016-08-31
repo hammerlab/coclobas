@@ -109,6 +109,7 @@ start_ketrew () {
     ketrew_bin=`which coclobas-ketrew`
     ketrew_config=_ketrew_config/config.json
     ocaml _ketrew_config/configuration.ml > $ketrew_config
+    sudo chmod -R 777 _ketrew_config
     sudo su biokepi -c "KETREW_CONFIG=$ketrew_config $ketrew_bin start -P server"
 }
 
