@@ -94,10 +94,17 @@ start_coclobas () {
     $ccb start-server --root $root --port 8082
 }
 
+tls_config () {
+    if [ -f _fake_tls/privkey-nopass.pem ] ; then
+        echo "TLS cert/key already configured"
+    else
+        ketrew init --config _fake_tls --self-signed
+    fi
+}
+
 start_ketrew () {
     sudo chmod -R 777 .
     sudo chmod -R 777 /tmp/ketrew
-    ketrew init --config _fake_tls --self-signed
     ketrew init --config _ketrew_config --port 8080 --debug 1 --with-tok $TOKEN
     ketrew_bin=`which coclobas-ketrew`
     ketrew_config=_ketrew_config/config.json
@@ -106,6 +113,7 @@ start_ketrew () {
 }
 
 start_tlstunnel () {
+    tls_config
     tt=`which tlstunnel`
     sudo $tt --cert _fake_tls/certificate.pem \
          --key _fake_tls/privkey-nopass.pem \
