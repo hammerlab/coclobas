@@ -18,7 +18,8 @@ Get the container ready:
 Put your `configuration.env` in `/tmp/coclo` (or `/coclo` if you edit it from
 the container), and then if all goes well you can mount & start everything with:
 
-    please.sh /coclo/configuration.env start_all
+    cd /coclo/
+    please.sh ./configuration.env start_all
 
 
 
