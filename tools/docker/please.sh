@@ -121,8 +121,13 @@ start_tlstunnel () {
          --backend 127.0.0.1:8080 --frontend :443
 }
 
+access_rights_on_console () {
+    sudo chmod 777 /dev/console
+}
+
 start_all () {
     mount_all
+    access_rights_on_console
     if [ -f ~/.screenrc ]; then
         cat ~/.screenrc > screenrc
     else
@@ -131,9 +136,9 @@ hardstatus alwayslastline "%c   %-w [ %n %t ] %+w"
 ' > screenrc
     fi
     cat >> screenrc <<EOF
-screen -t  Ketrew-server bash please.sh $config_file start_ketrew
-screen -t Coclobas-server bash please.sh $config_file start_coclobas
-screen -t Sudo-tlstunnel bash please.sh $config_file start_tlstunnel
+screen -t  Ketrew-server please.sh $config_file start_ketrew
+screen -t Coclobas-server please.sh $config_file start_coclobas
+screen -t Sudo-tlstunnel please.sh $config_file start_tlstunnel
 screen bash
 EOF
     screen -S ketrewcoclo -c screenrc
