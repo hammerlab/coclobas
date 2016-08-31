@@ -135,6 +135,7 @@ let incoming_job t string =
 
 let min_sleep = 3.
 let max_sleep = 180.
+let max_update_errors = 10
 
 let rec loop:
   ?and_sleep : float -> t -> (unit, _) Deferred_result.t
@@ -209,8 +210,19 @@ let rec loop:
       end >>< begin function
       | `Ok () -> return ()
       | `Error e ->
-        j.Job.status <- `Error ("Updating failed: " ^ Error.to_string e);
-        Job.save t.storage j
+        begin match j.Job.update_errors with
+        | l when List.length l <= max_update_errors ->
+          j.Job.status <- `Started (now ());
+          j.Job.update_errors <- Error.to_string e :: l;
+          Job.save t.storage j
+        | more ->
+          j.Job.status <-
+            `Error (sprintf
+                      "Updating failed %d times: [ %s ]"
+                      (max_update_errors + 1)
+                      (List.dedup more |> String.concat ~sep:" -- "));
+          Job.save t.storage j
+        end
       end
     end
     >>= fun ((_ : unit list),

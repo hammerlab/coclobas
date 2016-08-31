@@ -51,7 +51,9 @@ end
 type t = {
   id: string;
   specification : Specification.t;
-  mutable status : Status.t; }
+  mutable status : Status.t;
+  mutable update_errors : string list;
+}
 
 val fresh : Specification.t -> t
 
