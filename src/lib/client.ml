@@ -47,14 +47,18 @@ let submit_kube_job {base_url} spec =
   >>= fun id ->
   return id
 
-let get_kube_job_jsons {base_url} ~path ~ids ~json_key ~of_yojson =
+let get_kube_job_jsons {base_url} ~path ~ids  =
   let uri = uri_of_ids base_url path ids in
   do_get uri
   >>= fun (resp, body) ->
   response_is_ok resp ~meth:`Get ~uri
   >>= fun () ->
   wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
+
+let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
+  get_kube_job_jsons t ~path ~ids
   >>= fun json ->
+  let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   begin match json with
   | `List l ->
     Deferred_list.while_sequential l ~f:(function
@@ -64,23 +68,65 @@ let get_kube_job_jsons {base_url} ~path ~ids ~json_key ~of_yojson =
             | `Ok s -> return (id, s)
             | `Error e -> fail (Failure e)
           )
-      | other -> fail (`Client (`Json_parsing (uri, other)))
+      | other -> fail (`Client (`Json_parsing (uri, "Not an Assoc", other)))
       )
-  | other -> fail (`Client (`Json_parsing (uri, other)))
+  | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
 let get_kube_job_statuses t ids =
-  get_kube_job_jsons t ~path:"job/status" ~ids ~json_key:"status"
+  get_kube_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
     ~of_yojson:Kube_job.Status.of_yojson
 
+let get_json_keys ~uri ~parsers json =
+  begin match json with
+  | `List l ->
+    Deferred_list.while_sequential l ~f:(function
+      | `Assoc kv as jkv->
+        Deferred_list.while_sequential parsers ~f:(fun (key, of_yojson) ->
+            match List.find kv ~f:(fun (k, v) -> k = key) with
+            | Some (_, vjson) ->
+              wrap_parsing Lwt.(fun () ->
+                  match of_yojson vjson with
+                  | `Ok s -> return s
+                  | `Error e -> fail (Failure e)
+                )
+            | None ->
+              fail (`Client (`Json_parsing (uri, "No key: " ^ key, jkv)))
+          )
+      | other -> fail (`Client (`Json_parsing (uri, "Not an Assoc", other)))
+      )
+  | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
+  end
+
 let get_kube_job_descriptions t ids =
-  get_kube_job_jsons t ~path:"job/describe" ~ids ~json_key:"description"
-    ~of_yojson:(function
-      | `String s -> `Ok s
-      | other -> `Error "Expecting a string (job describption)")
+  let path = "job/describe" in
+  get_kube_job_jsons t ~path ~ids
+  >>= fun json ->
+  let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
+  let get_string name =
+    function
+    | `String i -> `Ok i
+    | other -> `Error (sprintf "%s not a string" name)
+  in
+  get_json_keys ~uri json ~parsers:[
+    "id", get_string "id";
+    "description", get_string "description";
+    "freshness", get_string "freshness";
+  ]
+  >>= fun (res : string list list) ->
+  Deferred_list.while_sequential res ~f:(
+    function
+    | [id; descr; freshness] ->
+      return (`Id id, `Describe_output descr, `Freshness freshness)
+    | other ->
+      ksprintf failwith
+        "This should never happen: 3 parsers  Vs %d results: [%s]"
+        (List.length other)
+        (String.concat ~sep:", " other)
+  )
 
 let get_kube_job_logs t ids =
-  get_kube_job_jsons t ~path:"job/logs" ~ids ~json_key:"output"
+  get_kube_job_json_one_key t ~path:"job/logs" ~ids ~json_key:"output"
     ~of_yojson:(function
       | `String s -> `Ok s
       | other -> `Error "Expecting a string (job logs dump)")
@@ -104,9 +150,10 @@ module Error = struct
     function
     | `IO_exn e -> sprintf "Client.IO: %s" (Printexc.to_string e)
     | `Json_exn e -> sprintf "Client.Json-parsing: %s" (Printexc.to_string e)
-    | `Json_parsing (uri, json) ->
-      sprintf "Client.Json-parsing: URI: %s content: %s"
+    | `Json_parsing (uri, problem, json) ->
+      sprintf "Client.Json-parsing: URI: %s, problem: %s, content: %s"
         (Uri.to_string uri)
+        problem
         (Yojson.Safe.pretty_to_string json)
     | `Response (meth, uri, resp) ->
       sprintf "Client.Response: URI: %s, Meth: %s, Resp: %s"

@@ -291,11 +291,17 @@ let get_job_description t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
       Job.get t.storage id
       >>= fun job ->
-      Job.describe ~log:t.log job
-      >>= fun descr ->
+      Job.describe ~storage:t.storage ~log:t.log job
+      >>= fun (freshness, descr) ->
+      let frstr =
+        match freshness with
+        | `Fresh -> "Fresh"
+        | `Old e -> sprintf "Old: %s" (Error.to_string e)
+      in
       return (`Assoc [
           "id", `String id;
           "description", `String descr;
+          "freshness", `String frstr;
         ]))
   >>= fun l ->
   return (`Json (`List l))

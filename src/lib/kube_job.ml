@@ -56,22 +56,28 @@ let id t = t.id
 
 let status t = t.status
 
+let make_path id =
+  function
+  | `Specification -> ["job"; id; "specification.json"]
+  | `Status -> ["job"; id; "status.json"]
+  | `Describe_output -> ["job"; id; "describe.out"]
+
 let save st job =
   Storage.Json.save_jsonable st
-    ~path:["job"; id job; "specification.json"]
+    ~path:(make_path (id job) `Specification)
     (Specification.to_yojson job.specification)
   >>= fun () ->
   Storage.Json.save_jsonable st
-    ~path:["job"; id job; "status.json"]
+    ~path:(make_path (id job) `Status)
     (Status.to_yojson job.status)
 
 let get st job_id =
   Storage.Json.get_json st
-    ~path:["job"; job_id; "specification.json"]
+    ~path:(make_path job_id `Specification)
     ~parse:Specification.of_yojson
   >>= fun specification ->
   Storage.Json.get_json st
-    ~path:["job"; job_id; "status.json"]
+    ~path:(make_path job_id `Status)
     ~parse:Status.of_yojson
   >>= fun status ->
   return {id = job_id; specification; status; update_errors = []}
@@ -193,11 +199,23 @@ let start ~log t =
     (command_must_succeed ~additional_json ~log t)
     "kubectl create -f %s" tmp
 
-let describe ~log t =
+let describe ~storage ~log t =
   let cmd = sprintf "kubectl describe pod %s" (id t) in
-  command_must_succeed_with_output ~log t cmd
-  >>= fun (out, _) ->
-  return out
+  begin
+    command_must_succeed_with_output ~log t cmd
+    >>< function
+    | `Ok (out, _) ->
+      Storage.update storage (make_path (id t) `Describe_output) out
+      >>= fun () ->
+      return (`Fresh, out)
+    | `Error (`Shell_command _ as e) ->
+      Storage.read storage (make_path (id t) `Describe_output)
+      >>= begin function
+      | Some old -> return (`Old e, old)
+      | None -> fail e
+      end
+    | `Error e -> fail e
+  end
 
 let get_logs ~log t =
   let cmd = sprintf "kubectl logs %s" (id t) in

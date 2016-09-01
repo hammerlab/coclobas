@@ -86,11 +86,13 @@ val start :
    | `Log of Log.Error.t ]) Deferred_result.t
 
 val describe :
+  storage:Storage.t ->
   log:Log.t ->
   t ->
-  (string,
-   [> `Shell_command of Hyper_shell.Error.t
-   | `Log of Log.Error.t ]) Deferred_result.t
+  ([ `Fresh | `Old of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
+   [> `Log of Log.Error.t
+   | `Shell_command of Hyper_shell.Error.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val kill :
   log:Log.t ->
