@@ -41,11 +41,8 @@ module Status : sig
     | `Finished of float * [ `Failed | `Succeeded | `Killed ]
     | `Started of float
     | `Submitted
-  ]
-  val to_yojson : t -> Yojson.Safe.json
-  val of_yojson : Yojson.Safe.json -> [ `Error of string | `Ok of t ]
+  ] [@@deriving yojson, show]
 
-  val show : t -> Ppx_deriving_runtime.string
 end
 
 type t = {
@@ -118,11 +115,7 @@ val get_status_json :
 module Kube_status : sig
   type t = {
     phase : [ `Failed | `Pending | `Running | `Succeeded | `Unknown ];
-  }
-  val show : t -> Ppx_deriving_runtime.string
-
-  val to_yojson : t -> Yojson.Safe.json
-  val of_yojson : Yojson.Safe.json -> [ `Error of string | `Ok of t ]
+  } [@@deriving yojson, show]
 
   val phase_of_string :
     string ->

@@ -89,9 +89,11 @@ let empty t =
 
 
 module Json = struct
-  let of_yojson_error = function
-  | `Ok o -> return o
-  | `Error s -> fail (`Storage (`Of_json s))
+  let of_yojson_error =
+    let open Ppx_deriving_yojson_runtime.Result in
+    function
+    | Ok o -> return o
+    | Error s -> fail (`Storage (`Of_json s))
 
   let save_jsonable st ~path yo =
     let json = yo |> Yojson.Safe.pretty_to_string ~std:true in

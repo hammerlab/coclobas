@@ -21,13 +21,14 @@ module Run_parameters = struct
     |> Yojson.Safe.pretty_to_string ~std:true
 
   let deserialize_exn s =
+    let open Ppx_deriving_yojson_runtime.Result in
     Yojson.Safe.from_string s |> of_yojson
     |> function
-    | `Ok o -> o
-    | `Error e -> failwith e
+    | Ok o -> o
+    | Error e -> failwith e
 end
 
-let create ~base_url spec = 
+let create ~base_url spec =
   `Long_running (name, `Created (Client.make base_url, spec) |> Run_parameters.serialize)
 
 let run_program ~base_url ~image ?(volume_mounts = []) p =
@@ -54,20 +55,10 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 
   type run_parameters = Run_parameters.t
   include Run_parameters
-     
+
   let name = "coclobas-kube"
 
   module KLRU = Ketrew.Long_running_utilities
-
-  let serialize run_parameters =
-    Run_parameters.to_yojson run_parameters
-    |> Yojson.Safe.pretty_to_string ~std:true
-
-  let deserialize_exn s =
-    Yojson.Safe.from_string s |> Run_parameters.of_yojson
-    |> function
-    | `Ok o -> o
-    | `Error e -> failwith e
 
   let classify_client_error m =
     m >>< function

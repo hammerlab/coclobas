@@ -98,15 +98,16 @@ let change_job_list t action =
 
 let get_job_list t =
   let parse =
-    let open Pvem.Result in
+    let open Ppx_deriving_yojson_runtime in
+    let open Ppx_deriving_yojson_runtime.Result in
     function
     | `List l ->
-      List.fold ~init:(return []) l ~f:(fun prev j ->
+      Nonstd.List.fold ~init:(Ok []) l ~f:(fun prev j ->
           prev >>= fun l ->
           match j with
-          | `String s -> return (s :: l)
-          | other -> fail "expecting List of Strings")
-    | other -> fail "expecting List (of Strings)"
+          | `String s -> Ok (s :: l)
+          | other -> Error "expecting List of Strings")
+    | other -> Error "expecting List (of Strings)"
   in
   begin
     Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse

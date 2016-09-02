@@ -64,9 +64,10 @@ let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
     Deferred_list.while_sequential l ~f:(function
       | `Assoc ["id", `String id; key, stjson] when key = json_key ->
         wrap_parsing Lwt.(fun () ->
+            let open Ppx_deriving_yojson_runtime.Result in
             match of_yojson stjson with
-            | `Ok s -> return (id, s)
-            | `Error e -> fail (Failure e)
+            | Ok s -> return (id, s)
+            | Error e -> fail (Failure e)
           )
       | other -> fail (`Client (`Json_parsing (uri, "Not an Assoc", other)))
       )
@@ -127,9 +128,11 @@ let get_kube_job_descriptions t ids =
 
 let get_kube_job_logs t ids =
   get_kube_job_json_one_key t ~path:"job/logs" ~ids ~json_key:"output"
-    ~of_yojson:(function
-      | `String s -> `Ok s
-      | other -> `Error "Expecting a string (job logs dump)")
+    ~of_yojson:(
+      let open Ppx_deriving_yojson_runtime.Result in
+      function
+      | `String s -> Ok s
+      | other -> Error "Expecting a string (job logs dump)")
 
 let kill_kube_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in
