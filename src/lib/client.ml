@@ -127,12 +127,31 @@ let get_kube_job_descriptions t ids =
   )
 
 let get_kube_job_logs t ids =
-  get_kube_job_json_one_key t ~path:"job/logs" ~ids ~json_key:"output"
-    ~of_yojson:(
-      let open Ppx_deriving_yojson_runtime.Result in
-      function
-      | `String s -> Ok s
-      | other -> Error "Expecting a string (job logs dump)")
+  let path = "job/logs" in
+  get_kube_job_jsons t ~path ~ids
+  >>= fun json ->
+  let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
+  let get_string name =
+    function
+    | `String i -> `Ok i
+    | other -> `Error (sprintf "%s not a string" name)
+  in
+  get_json_keys ~uri json ~parsers:[
+    "id", get_string "id";
+    "output", get_string "output";
+    "freshness", get_string "freshness";
+  ]
+  >>= fun (res : string list list) ->
+  Deferred_list.while_sequential res ~f:(
+    function
+    | [id; output; freshness] ->
+      return (`Id id, `Describe_output output, `Freshness freshness)
+    | other ->
+      ksprintf failwith
+        "This should never happen: 3 parsers  Vs %d results: [%s]"
+        (List.length other)
+        (String.concat ~sep:", " other)
+  )
 
 let kill_kube_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in

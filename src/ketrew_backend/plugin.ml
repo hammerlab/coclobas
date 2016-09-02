@@ -232,8 +232,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           Client.get_kube_job_logs client [job_id]
           >>= fun l ->
           let rendered =
-            List.map l ~f:(fun (id, s) ->
-                sprintf "### Kube-Job %s\n\n%s" id  s)
+            List.map l ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
+                sprintf "### Kube-Job %s\n### Freshness: %s\n### Output:\n\n%s"
+                  id frns o)
             |> String.concat ~sep:"\n"
           in
           return rendered
