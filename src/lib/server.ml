@@ -159,6 +159,12 @@ let rec loop:
     >>= fun () ->
     Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
     | `Remove j ->
+      (* We call these functions once to give them a chance to save the output
+         before Kubernetes forgets about the job: *)
+      (Job.get_logs ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+      >>= fun () ->
+      (Job.describe ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+      >>= fun () ->
       change_job_list t (`Remove j)
     | `Kill j ->
       begin
