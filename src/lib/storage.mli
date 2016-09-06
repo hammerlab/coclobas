@@ -44,17 +44,19 @@ module Json : sig
       Deferred_result.t
 
   val parse_json_blob :
-    parse:(Yojson.Safe.json -> [ `Error of 'a | `Ok of 'b ]) ->
+    parse:(Yojson.Safe.json ->
+           ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->
     string ->
-    ('b, [> `Storage of [> `Exn of exn | `Of_json of 'a ] ]) Deferred_result.t
+    ('a, [> `Storage of [> `Exn of exn | `Of_json of string ] ]) Deferred_result.t
 
   val get_json : t -> path:key ->
-    parse:(Yojson.Safe.json -> [ `Error of 'a | `Ok of 'b ]) ->
-    ('b,
+    parse:(Yojson.Safe.json ->
+           ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->
+    ('a,
      [> `Storage of
           [> Error.common
           | `Missing_data of string
-          | `Of_json of 'a
+          | `Of_json of string
           ]])
       Deferred_result.t
 end

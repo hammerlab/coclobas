@@ -98,15 +98,16 @@ let change_job_list t action =
 
 let get_job_list t =
   let parse =
-    let open Pvem.Result in
+    let open Ppx_deriving_yojson_runtime in
+    let open Ppx_deriving_yojson_runtime.Result in
     function
     | `List l ->
-      List.fold ~init:(return []) l ~f:(fun prev j ->
+      Nonstd.List.fold ~init:(Ok []) l ~f:(fun prev j ->
           prev >>= fun l ->
           match j with
-          | `String s -> return (s :: l)
-          | other -> fail "expecting List of Strings")
-    | other -> fail "expecting List (of Strings)"
+          | `String s -> Ok (s :: l)
+          | other -> Error "expecting List of Strings")
+    | other -> Error "expecting List (of Strings)"
   in
   begin
     Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse
@@ -158,6 +159,12 @@ let rec loop:
     >>= fun () ->
     Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
     | `Remove j ->
+      (* We call these functions once to give them a chance to save the output
+         before Kubernetes forgets about the job: *)
+      (Job.get_logs ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+      >>= fun () ->
+      (Job.describe ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+      >>= fun () ->
       change_job_list t (`Remove j)
     | `Kill j ->
       begin
@@ -273,16 +280,26 @@ let get_job_status t ids =
   >>= fun l ->
   return (`Json (`List l))
 
+let make_json_of_freshness_result ~freshness ~id ~key ~value =
+  let frstr =
+    match freshness with
+    | `Fresh -> "Fresh"
+    | `Archived e -> sprintf "Archived because of error: %s" (Error.to_string e)
+  in
+  (`Assoc [
+      "id", `String id;
+      key, `String value;
+      "freshness", `String frstr;
+    ])
+
 let get_job_logs t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
       Job.get t.storage id
       >>= fun job ->
-      Job.get_logs ~log:t.log job
-      >>= fun (out, err) ->
-      return (`Assoc [
-          "id", `String id;
-          "output", `String (out ^ err);
-        ]))
+      Job.get_logs ~storage:t.storage ~log:t.log job
+      >>= fun (freshness, value) ->
+      return (make_json_of_freshness_result
+                ~id ~freshness ~key:"output" ~value))
   >>= fun l ->
   return (`Json (`List l))
 
@@ -291,12 +308,10 @@ let get_job_description t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
       Job.get t.storage id
       >>= fun job ->
-      Job.describe ~log:t.log job
-      >>= fun descr ->
-      return (`Assoc [
-          "id", `String id;
-          "description", `String descr;
-        ]))
+      Job.describe ~storage:t.storage ~log:t.log job
+      >>= fun (freshness, value) ->
+      return (make_json_of_freshness_result
+                ~id ~freshness ~key:"description" ~value))
   >>= fun l ->
   return (`Json (`List l))
 
