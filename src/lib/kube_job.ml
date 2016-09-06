@@ -211,7 +211,7 @@ let save_command ~storage ~log t ~cmd ~path_kind =
     | `Error (`Shell_command _ as e) ->
       Storage.read storage (make_path (id t) path_kind)
       >>= begin function
-      | Some old -> return (`Old e, old)
+      | Some old -> return (`Archived e, old)
       | None -> fail e
       end
     | `Error e -> fail e

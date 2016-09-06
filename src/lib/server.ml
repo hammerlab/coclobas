@@ -284,7 +284,7 @@ let make_json_of_freshness_result ~freshness ~id ~key ~value =
   let frstr =
     match freshness with
     | `Fresh -> "Fresh"
-    | `Old e -> sprintf "Old: %s" (Error.to_string e)
+    | `Archived e -> sprintf "Archived because of error: %s" (Error.to_string e)
   in
   (`Assoc [
       "id", `String id;

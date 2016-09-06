@@ -86,7 +86,7 @@ val describe :
   storage:Storage.t ->
   log:Log.t ->
   t ->
-  ([ `Fresh | `Old of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
+  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
@@ -102,7 +102,7 @@ val get_logs:
   storage:Storage.t ->
   log:Log.t ->
   t ->
-  ([ `Fresh | `Old of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
+  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
