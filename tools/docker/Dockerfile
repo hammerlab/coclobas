@@ -10,6 +10,11 @@ ENV CLOUDSDK_CORE_DISABLE_PROMPTS true
 RUN bash -c 'curl https://sdk.cloud.google.com | bash'
 RUN bash -c '/home/opam/google-cloud-sdk/bin/gcloud components install kubectl'
 
+RUN sudo apt-get install -y  python-pip python-dev build-essential
+RUN sudo pip install --upgrade google-api-python-client
+RUN sudo wget https://raw.githubusercontent.com/cioc/gcloudnfs/master/gcloudnfs -O/usr/bin/gcloudnfs
+RUN sudo chmod a+rx /usr/bin/gcloudnfs
+
 RUN sudo apt-get install -y zlib1g-dev screen nfs-common
 RUN opam install --yes tlstunnel
 RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
