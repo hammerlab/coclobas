@@ -150,31 +150,59 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         end
       end
 
-  let log :
-    run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
-    fun rp ->
-      let open Ketrew_pure.Internal_pervasives in
-      let common {client; specification; program} =
-        ["Client", Log.quote client.Coclobas.Client.base_url]
-        @ Option.value_map ~default:[] program ~f:(fun p ->
-            ["Program", Ketrew_pure.Program.log p] 
-          )
-        @ ["Job", Coclobas.Kube_job.Specification.show specification |> Log.s]
-      in
-      match rp with
-      | `Created c ->
-        ("status", Log.s "Created") :: common c
-      | `Running {created; job_id} ->
-        ("Status", Log.s "Running")
-        :: ("Job-id", Log.s job_id)
-        :: common created
+  let rec markup : t -> Ketrew_pure.Internal_pervasives.Display_markup.t =
+    let open Ketrew_pure.Internal_pervasives.Display_markup in
+    let job_spec js =
+      let open Coclobas.Kube_job.Specification in
+      let nfs_mount nfs =
+        let open Nfs_mount in
+        description_list  [
+          "Host", uri nfs.host;
+          "Path", command nfs.path;
+          "Point", command nfs.point;
+          "Read-only", textf "%b" nfs.read_only;
+          "Id", command (id nfs);
+        ] in
+      let constant_mount cst =
+        let open File_contents_mount in
+        description_list  [
+          "Path", uri cst.path;
+          "Contents", code_block cst.contents;
+        ] in
+      description_list [
+        "Image", uri js.image;
+        "Command", command (String.concat ~sep:" " js.command);
+        "Memory", (match js.memory with `GB x -> textf "%d GB" x);
+        "CPUs", textf "%d" js.cpus;
+        "Volumes",
+        (List.map js.volume_mounts ~f:(function
+           | `Nfs nfs -> "NFS", nfs_mount nfs
+           | `Constant cst -> "Constant", constant_mount cst)
+         |> description_list);
+      ] in
+    function
+    | `Created c ->
+      description_list [
+        "Client", uri c.client.Coclobas.Client.base_url;
+        "Program", option ~f:Ketrew_pure.Program.markup c.program; 
+        "Job", job_spec c.specification;
+      ]
+    | `Running rp ->
+      description_list [
+        "Created-as", markup (`Created rp.created);
+        "Job-ID", command rp.job_id;
+      ]
+
+  let log rp =
+    ["Coclobas", Ketrew_pure.Internal_pervasives.Display_markup.log (markup rp)]
+
 
   let additional_queries :
     run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
     fun rp ->
       let open Ketrew_pure.Internal_pervasives.Log in
       let common = [
-        "display", s "Display the contents of the run-parameters";
+        "ketrew-markup/display", s "Display the contents of the run-parameters";
         "server-status", s "Get the server status";
       ] in
       match rp with
@@ -204,15 +232,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       let created =
         match rp with `Created c -> c | `Running {created; _} -> created in
       match query, rp with
-      | "display", _ ->
-        return (
-          log rp
-          |> List.map ~f:(fun (k, v) ->
-              sprintf "- %s: %s"
-                k
-                (to_long_string v))
-          |> String.concat ~sep:"\n"
-        )
+      | "ketrew-markup/display", rp ->
+        return (markup rp
+                |> Ketrew_pure.Internal_pervasives.Display_markup.serialize)
       | "server-status", _ ->
         client_query begin
           Coclobas.Client.get_server_status_string created.client
