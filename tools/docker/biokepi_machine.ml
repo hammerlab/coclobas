@@ -36,6 +36,12 @@ let image =
 
 let gatk_jar_location = `Wget (env_exn "GATK_JAR_URL")
 let mutect_jar_location = `Wget (env_exn "MUTECT_JAR_URL")
+let netmhc_tool_locations = Biokepi.Setup.Netmhc.({
+  netmhc=`Wget (env_exn "NETMHC_TARBALL_URL");
+  netmhcpan=`Wget (env_exn "NETMHCPAN_TARBALL_URL");
+  pickpocket=`Wget (env_exn "PICKPOCKET_TARBALL_URL");
+  netmhccons=`Wget (env_exn "NETMHCPAN_TARBALL_URL");
+})
 
 let volume_mounts =
   env_exn "NFS_MOUNTS"
@@ -89,7 +95,8 @@ let biokepi_machine =
       ~install_tools_path
       ~run_program
       ~gatk_jar_location:(fun () -> gatk_jar_location)
-      ~mutect_jar_location:(fun () -> mutect_jar_location) in
+      ~mutect_jar_location:(fun () -> mutect_jar_location)
+      ~netmhc_tool_locations:(fun () -> netmhc_tool_locations) in
   Biokepi.Machine.create name
     ~pyensembl_cache_dir
     ~max_processors
