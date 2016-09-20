@@ -30,7 +30,7 @@ depends: [
   "irmin-unix"
   "cmdliner"
   "ppx_deriving"
-  "ppx_deriving_yojson"
+  "ppx_deriving_yojson" {>= "3.0"}
   "uuidm"
   "base64"
   "odate"
