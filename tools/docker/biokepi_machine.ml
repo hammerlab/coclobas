@@ -34,8 +34,18 @@ let image =
   try env_exn "DOCKER_IMAGE"
   with _ -> "hammerlab/biokepi-run"
 
-let gatk_jar_location = `Wget (env_exn "GATK_JAR_URL")
-let mutect_jar_location = `Wget (env_exn "MUTECT_JAR_URL")
+let env_exn_tool_loc s tool =
+  try (`Wget (Sys.getenv s)) with _ ->
+    `Fail (sprintf "No location provided for %s" tool)
+
+let gatk_jar_location () = env_exn_tool_loc "GATK_JAR_URL" "GATK"
+let mutect_jar_location () = env_exn_tool_loc "MUTECT_JAR_URL" "MuTect"
+let netmhc_tool_locations () = Biokepi.Setup.Netmhc.({
+  netmhc=env_exn_tool_loc "NETMHC_TARBALL_URL" "NetMHC";
+  netmhcpan=env_exn_tool_loc "NETMHCPAN_TARBALL_URL" "NetMHCpan";
+  pickpocket=env_exn_tool_loc "PICKPOCKET_TARBALL_URL" "PickPocket";
+  netmhccons=env_exn_tool_loc "NETMHCPAN_TARBALL_URL" "NetMHCcons";
+})
 
 let volume_mounts =
   env_exn "NFS_MOUNTS"
@@ -88,8 +98,9 @@ let biokepi_machine =
       ~host
       ~install_tools_path
       ~run_program
-      ~gatk_jar_location:(fun () -> gatk_jar_location)
-      ~mutect_jar_location:(fun () -> mutect_jar_location) in
+      ~gatk_jar_location
+      ~mutect_jar_location
+      ~netmhc_tool_locations in
   Biokepi.Machine.create name
     ~pyensembl_cache_dir
     ~max_processors
