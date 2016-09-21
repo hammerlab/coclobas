@@ -91,18 +91,13 @@ let root_term () =
   required_string "root" (fun s -> `Root s)
     ~doc:"The root of the configuration"
 
-
 let client_term =
   let open Cmdliner in
   let term =
     let open Term in
     pure (fun (`Base_url base_url) action ids ->
-        let res = client ~base_url action ids in
-        match Lwt_main.run res with
-        | `Error e ->
-          eprintf "An error has occured.\n";
-          exit 2
-        | `Ok () -> ()
+        client ~base_url action ids
+        |> run_deferred
       )
     $ required_string "server-url" (fun v -> `Base_url v)
       ~doc:"URL where the Cocolobas server can be found."

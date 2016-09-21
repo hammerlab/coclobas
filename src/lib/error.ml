@@ -15,3 +15,4 @@ let to_string =
   | `Job e -> Kube_job.Error.to_string e
   | `Start_server (`Exn e) ->
     sprintf "Starting Cohttp server: %s" (exn e)
+  | `Client err -> Client.Error.to_string err
