@@ -39,6 +39,27 @@ let cluster ~root action =
     return ()
   end
 
+
+let client ~base_url action ids =
+  let client = Client.{base_url} in
+  begin match action with
+  | `Describe ->
+    Client.get_kube_job_descriptions client ids
+    >>= fun descs ->
+    List.iter descs
+      ~f:(fun (`Id id, `Describe_output d, `Freshness f) ->
+          printf "ID: %s\n\
+                  Freshness: %s\n\
+                  %s\n\n" id f d)
+    |> return
+  | `Status ->
+    Client.get_kube_job_statuses client ids
+    >>= fun statuses ->
+    List.iter statuses ~f:(fun (r, s) ->
+      printf "%s is %s\n" r (Kube_job.Status.show s))
+    |> return
+  end
+
 let start_server ~root ~port =
   let storage = db root in
   Kube_cluster.get storage
@@ -69,6 +90,35 @@ let required_string ~doc optname f =
 let root_term () =
   required_string "root" (fun s -> `Root s)
     ~doc:"The root of the configuration"
+
+let client_term =
+  let open Cmdliner in
+  let term =
+    let open Term in
+    pure (fun (`Base_url base_url) action ids ->
+        client ~base_url action ids
+        |> run_deferred
+      )
+    $ required_string "server-url" (fun v -> `Base_url v)
+      ~doc:"URL where the Cocolobas server can be found."
+    $ Arg.(
+        let actions = [
+          "describe", `Describe;
+          "status", `Status;
+        ] in
+        required
+        & pos 0 (some (enum actions)) None
+        & info [] ~doc:"Action to do on the current cluster:\
+                       \ {describe,status}."
+          ~docv:"ACTION"
+      )
+    $ Arg.(
+        value & pos_right 0 string []
+        & info [] ~doc:"Job IDs to act on."
+          ~docv:"ID")
+  in
+  let info = Term.(info "client" ~doc:"Interact with the server.") in
+  (term, info)
 
 
 let main () =
@@ -201,7 +251,7 @@ let main () =
     ] in
     Term.(ret (pure (`Help (`Plain, None)))),
     Term.info Sys.argv.(0) ~version ~doc ~man in
-  let choices = [cluster; start_server; configure] (* @ test_job_terms () *) in
+  let choices = [cluster; start_server; configure; client_term] in
   match Term.eval_choice default_cmd choices with
   | `Ok f -> f
   | `Error _ -> exit 1
