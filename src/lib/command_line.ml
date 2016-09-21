@@ -91,7 +91,7 @@ let main () =
       $ Arg.(
           required & opt (some int) None
           & info ["max-nodes"]
-            ~doc:"Maximum number of nodes in th cluster." ~docv:"NUMBER")
+            ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
     end
   in
   let server_config_term =
