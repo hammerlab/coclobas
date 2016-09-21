@@ -6,9 +6,11 @@ let db ~root =
 let log ~root =
  Log.file_tree (root // "logs")
 
-let configure ~root ~cluster =
+let configure ~root ~cluster ~server =
   let storage = db ~root in
   Kube_cluster.save ~storage cluster
+  >>= fun () ->
+  Server.Configuration.save ~storage server
 
 let cluster ~root action =
   let storage = db ~root in
@@ -41,8 +43,11 @@ let start_server ~root ~port =
   let storage = db root in
   Kube_cluster.get storage
   >>= fun cluster ->
+  Server.Configuration.get storage
+  >>= fun configuration ->
   let log = log root in
-  let server = Server.create ~storage ~log ~root ~cluster ~port in
+  let server =
+    Server.create ~configuration ~storage ~log ~root ~cluster ~port in
   Server.start server
 
 
@@ -78,15 +83,47 @@ let main () =
       Kube_cluster.make name ~zone ~max_nodes
     end
     $ required_string "cluster-name" (fun s -> `Name s)
-      ~doc:"Name of the Kubernetes cluster"
+      ~doc:"Name of the Kubernetes cluster."
     $ required_string "cluster-zone" (fun s -> `Zone s)
-      ~doc:"Zone of the Kubernetes cluster"
+      ~doc:"Zone of the Kubernetes cluster."
     $ begin
       pure (fun s -> `Max_nodes s)
       $ Arg.(
           required & opt (some int) None
           & info ["max-nodes"]
-            ~doc:"Maximum number of nodes in th cluster" ~docv:"NUMBER")
+            ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
+    end
+  in
+  let server_config_term =
+    let open Term in
+    pure begin fun
+      (`Max_update_errors max_update_errors)
+      (`Min_sleep min_sleep)
+      (`Max_sleep max_sleep) ->
+      Server.Configuration.make ()
+        ~min_sleep ~max_sleep ~max_update_errors
+    end
+    $ begin
+      pure (fun s -> `Max_update_errors s)
+        $ Arg.(value & opt int Server.Configuration.Default.max_update_errors &
+               info ["max-update-errors"]
+                 ~doc:"The number of `kubectl` errors allowed before \
+                       considering  a job dead.")
+    end
+    $ begin
+      pure (fun s -> `Min_sleep s)
+        $ Arg.(value & opt float Server.Configuration.Default.min_sleep &
+               info ["min-sleep"]
+                 ~doc:"The minimal time to wait before reentering the \
+                       “update loop” (events like job submission bypass this \
+                       timer and wake-up the loop any way).")
+    end
+    $ begin
+      pure (fun s -> `Max_sleep s)
+        $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
+               info ["min-sleep"]
+                 ~doc:"The maximal time to wait before reentering the \
+                       “update loop.”")
     end
   in
   let configure =
@@ -95,12 +132,14 @@ let main () =
       pure begin fun
         (`Root root)
         cluster
+        server
         () ->
-        configure ~root ~cluster
+        configure ~root ~cluster ~server
         |> run_deferred
       end
       $ root_term ()
       $ cluster_term
+      $ server_config_term
       $ pure () in
     let info = Term.(info "configure" ~doc:"Configure an instance") in
     (term, info) in

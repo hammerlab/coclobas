@@ -5,6 +5,28 @@ module Cluster = Kube_cluster
 
 module Job = Kube_job
 
+module Configuration = struct
+
+  module Default = struct
+    let min_sleep = 3.
+    let max_sleep = 180.
+    let max_update_errors = 10
+  end
+
+  type t = {
+    min_sleep: float [@default Default.min_sleep];
+    max_sleep: float [@default Default.max_sleep];
+    max_update_errors: int [@default Default.max_update_errors];
+  } [@@deriving make, yojson, show]
+
+  let path = ["server"; "configuration.json"]
+
+  let save ~storage conf =
+  Storage.Json.save_jsonable storage (to_yojson conf) ~path
+
+  let get st = Storage.Json.get_json st ~path ~parse:of_yojson
+end
+
 type t = {
   port : int;
   mutable status: [ `Initializing | `Ready ] [@default `Initializing];
@@ -16,15 +38,17 @@ type t = {
   log: Log.t;
   job_list_mutex: Lwt_mutex.t;
   kick_loop: unit Lwt_condition.t;
+  configuration: Configuration.t;
 } [@@deriving make]
 
-let create ~port ~root ~cluster ~storage ~log =
+let create ~port ~configuration ~root ~cluster ~storage ~log =
   let job_list_mutex = Lwt_mutex.create () in
   let kick_loop = Lwt_condition.create () in
   make ()
     ~job_list_mutex
     ~kick_loop
     ~port ~root ~cluster ~storage ~log
+    ~configuration
 
 let log_event t e =
   let json_event name moar_json = 
@@ -134,13 +158,11 @@ let incoming_job t string =
   Lwt_condition.broadcast t.kick_loop ();
   return (`String (Job.id job))
 
-let min_sleep = 3.
-let max_sleep = 180.
-let max_update_errors = 10
-
 let rec loop:
   ?and_sleep : float -> t -> (unit, _) Deferred_result.t
-  = fun ?(and_sleep = min_sleep) t ->
+  = fun ?and_sleep t ->
+    let and_sleep =
+      Option.value and_sleep ~default:t.configuration.Configuration.min_sleep in
     let now () = Unix.gettimeofday () in
     let todo =
       List.fold t.jobs ~init:[] ~f:(fun prev j ->
@@ -218,7 +240,7 @@ let rec loop:
       | `Ok () -> return ()
       | `Error e ->
         begin match j.Job.update_errors with
-        | l when List.length l <= max_update_errors ->
+        | l when List.length l <= t.configuration.Configuration.max_update_errors ->
           j.Job.status <- `Started (now ());
           j.Job.update_errors <- Error.to_string e :: l;
           Job.save t.storage j
@@ -226,7 +248,7 @@ let rec loop:
           j.Job.status <-
             `Error (sprintf
                       "Updating failed %d times: [ %s ]"
-                      (max_update_errors + 1)
+                      (t.configuration.Configuration.max_update_errors + 1)
                       (List.dedup more |> String.concat ~sep:" -- "));
           Job.save t.storage j
         end
@@ -254,8 +276,9 @@ let rec loop:
     >>= fun kicked ->
     let and_sleep =
       match todo, kicked with
-      | [], false -> min max_sleep (and_sleep *. 2.)
-      | _, _ -> min_sleep in
+      | [], false ->
+        min t.configuration.Configuration.max_sleep (and_sleep *. 2.)
+      | _, _ -> t.configuration.Configuration.min_sleep in
     loop ~and_sleep t
 
 let initialization t =
