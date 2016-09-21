@@ -37,7 +37,7 @@ let submit_kube_job {base_url} spec =
     Uri.with_path (Uri.of_string base_url) "job/submit" in
   let body =
     Cohttp_lwt_body.of_string
-      (Kube_job.Specification.to_yojson spec |> Yojson.Safe.pretty_to_string) 
+      (Kube_job.Specification.to_yojson spec |> Yojson.Safe.pretty_to_string)
   in
   wrap_io (fun () -> Cohttp_lwt_unix.Client.post uri ~body)
   >>= fun (resp, ret_body) ->
