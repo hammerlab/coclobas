@@ -58,6 +58,14 @@ let client ~base_url action ids =
     List.iter statuses ~f:(fun (r, s) ->
       printf "%s is %s\n" r (Kube_job.Status.show s))
     |> return
+  | `List ->
+    Client.get_job_list client
+    >>= fun jobs ->
+    List.iter jobs ~f:(fun (`Id i, `Status s)  ->
+      printf "%s is %s\n" i s)
+    |> return
+  | `Kill ->
+    Client.kill_kube_jobs client ids
   end
 
 let start_server ~root ~port =
@@ -105,11 +113,13 @@ let client_term =
         let actions = [
           "describe", `Describe;
           "status", `Status;
+          "list", `List;
+          "kill", `Kill;
         ] in
         required
         & pos 0 (some (enum actions)) None
         & info [] ~doc:"Action to do on the current cluster:\
-                       \ {describe,status}."
+                       \ {describe,status,list,kill}."
           ~docv:"ACTION"
       )
     $ Arg.(

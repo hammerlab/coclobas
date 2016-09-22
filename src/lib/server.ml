@@ -74,7 +74,7 @@ let log_event t e =
     | `Loop_begins todo ->
       "loop",
       json_event "loop-begins" [
-        "todo", `List 
+        "todo", `List
           (List.map todo ~f:(function
              | `Remove j -> stringf "rm %s" (Job.id j)
              | `Kill j -> stringf "kill %s" (Job.id j)
@@ -394,6 +394,14 @@ let start t =
             respond_result (return (`Ok `Done))
           | "/empty-logs" ->
             empty_logs t |> respond_result
+          | "/jobs" ->
+            let jobs = List.map t.jobs (fun j ->
+                (`Assoc [
+                    "id", `String j.Job.id;
+                    "status", `String (Job.Status.show j.Job.status);
+                  ])) in
+            let body = Yojson.Safe.pretty_to_string ~std:true (`List jobs) in
+            Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body ()
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
