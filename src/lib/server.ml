@@ -344,7 +344,14 @@ let kill_jobs t ids =
   Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
-
+let get_jobs t =
+  let jobs = List.map t.jobs (fun j ->
+      (`Assoc [
+          "id", `String j.Job.id;
+          "status", `String (Job.Status.show j.Job.status);
+        ])) in
+  let json = (`List jobs) in
+  return (`Json json)
 
 let respond_result r =
   let open Cohttp in
@@ -395,13 +402,7 @@ let start t =
           | "/empty-logs" ->
             empty_logs t |> respond_result
           | "/jobs" ->
-            let jobs = List.map t.jobs (fun j ->
-                (`Assoc [
-                    "id", `String j.Job.id;
-                    "status", `String (Job.Status.show j.Job.status);
-                  ])) in
-            let body = Yojson.Safe.pretty_to_string ~std:true (`List jobs) in
-            Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body ()
+            get_jobs t |> respond_result
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
