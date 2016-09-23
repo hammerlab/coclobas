@@ -167,6 +167,32 @@ let get_server_status_string {base_url} =
   >>= fun () ->
   return body
 
+let get_job_list {base_url} =
+  let uri = Uri.with_path (Uri.of_string base_url) "jobs" in
+  do_get uri
+  >>= fun (resp, body) ->
+  let json = Yojson.Safe.from_string body in
+  let get_string name =
+    function
+    | `String i -> `Ok i
+    | other -> `Error (sprintf "%s not a string" name)
+  in
+  get_json_keys ~uri json ~parsers:[
+    "id", get_string "status";
+    "status", get_string "status";
+  ]
+  >>= fun (res : string list list) ->
+  Deferred_list.while_sequential res ~f:(
+    function
+    | [id; status] ->
+      return (`Id id, `Status status)
+    | other ->
+      ksprintf failwith
+        "This should never happen: 2 parsers  Vs %d results: [%s]"
+        (List.length other)
+        (String.concat ~sep:", " other)
+  )
+
 module Error = struct
   let to_string =
     function

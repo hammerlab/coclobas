@@ -74,7 +74,7 @@ let log_event t e =
     | `Loop_begins todo ->
       "loop",
       json_event "loop-begins" [
-        "todo", `List 
+        "todo", `List
           (List.map todo ~f:(function
              | `Remove j -> stringf "rm %s" (Job.id j)
              | `Kill j -> stringf "kill %s" (Job.id j)
@@ -344,7 +344,14 @@ let kill_jobs t ids =
   Lwt_condition.broadcast t.kick_loop ();
   return `Done
 
-
+let get_jobs t =
+  let jobs = List.map t.jobs (fun j ->
+      (`Assoc [
+          "id", `String j.Job.id;
+          "status", `String (Job.Status.show j.Job.status);
+        ])) in
+  let json = (`List jobs) in
+  return (`Json json)
 
 let respond_result r =
   let open Cohttp in
@@ -394,6 +401,8 @@ let start t =
             respond_result (return (`Ok `Done))
           | "/empty-logs" ->
             empty_logs t |> respond_result
+          | "/jobs" ->
+            get_jobs t |> respond_result
           | "/job/status" ->
             get_job_status t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
