@@ -209,7 +209,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Created c -> common
       | `Running c ->
         (
-          ("job-status", s "Get the “raw” job status")
+          ("ketrew-markup/job-status", s "Get the “raw” job status")
           :: ("kubectl-describe", s "Get the `describe` blob from Kubernetes")
           :: ("kubectl-logs", s "Get the `logs` blob from Kubernetes")
           :: common
@@ -239,17 +239,27 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         client_query begin
           Coclobas.Client.get_server_status_string created.client
         end
-      | "job-status", `Running {job_id; _} ->
+      | "ketrew-markup/job-status", `Running {job_id; _} ->
         client_query begin
           Client.get_kube_job_statuses created.client
             [job_id]
           >>= fun l ->
-          let rendered =
-            List.map l ~f:(fun (id, s) ->
-                sprintf "* %s: %s" id (Kube_job.Status.show s))
-            |> String.concat ~sep:"\n"
-          in
-          return rendered
+          return Ketrew_pure.Internal_pervasives.Display_markup.(
+              description_list
+                (List.map l ~f:(fun (id, s) ->
+                     "Job " ^ id,
+                     (match s with
+                     | `Error ee -> concat [text "Error: "; command ee]
+                     | `Started d -> concat [text "Started on "; date d]
+                     | `Finished (d, `Failed) ->
+                       concat [text "Failed on "; date d]
+                     | `Finished (d, `Succeeded) ->
+                       concat [text "Succeeded on "; date d]
+                     | `Finished (d, `Killed) ->
+                       concat [text "Killed on "; date d]
+                     | `Submitted -> text "Submitted")
+                   ))
+              |> serialize)
         end
       | "kubectl-describe" , `Running {job_id; _} ->
         client_query begin
