@@ -34,8 +34,11 @@ let command_must_succeed_with_output ~log cluster cmd =
 
 let gcloud_start ~log t =
   let cmd =
+    (* We use `--image-type=container_vm` because of some problem we have been
+       having with gcloud's new (Oct 2016) “GCI” default image. *)
     sprintf 
       "gcloud container clusters create %s \
+       --image-type=container_vm \
        --quiet --wait \
        --zone %s --num-nodes=%d --min-nodes=%d --max-nodes=%d \
        --machine-type=%s \
