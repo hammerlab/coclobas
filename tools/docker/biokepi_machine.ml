@@ -44,7 +44,7 @@ let netmhc_tool_locations () = Biokepi.Setup.Netmhc.({
   netmhc=env_exn_tool_loc "NETMHC_TARBALL_URL" "NetMHC";
   netmhcpan=env_exn_tool_loc "NETMHCPAN_TARBALL_URL" "NetMHCpan";
   pickpocket=env_exn_tool_loc "PICKPOCKET_TARBALL_URL" "PickPocket";
-  netmhccons=env_exn_tool_loc "NETMHCPAN_TARBALL_URL" "NetMHCcons";
+  netmhccons=env_exn_tool_loc "NETMHCCONS_TARBALL_URL" "NetMHCcons";
 })
 
 let volume_mounts =
