@@ -15,7 +15,7 @@ RUN sudo pip install --upgrade google-api-python-client
 RUN sudo wget https://raw.githubusercontent.com/cioc/gcloudnfs/master/gcloudnfs -O/usr/bin/gcloudnfs
 RUN sudo chmod a+rx /usr/bin/gcloudnfs
 
-RUN sudo apt-get install -y zlib1g-dev screen nfs-common
+RUN sudo apt-get install -y zlib1g-dev screen nfs-common graphviz
 RUN opam install --yes tlstunnel
 RUN opam pin --yes add solvuu-build https://github.com/solvuu/solvuu-build.git
 RUN opam pin --yes add coclobas https://github.com/hammerlab/coclobas.git
