@@ -50,6 +50,7 @@ type t = {
   specification : Specification.t;
   mutable status : Status.t;
   mutable update_errors : string list;
+  mutable start_errors : string list;
 }
 
 val fresh : Specification.t -> t

@@ -210,10 +210,19 @@ let rec loop:
         >>= fun () ->
         return ()
       | `Error e ->
-        j.Job.status <- `Error ("Starting failed: " ^ Error.to_string e);
-        Job.save t.storage j
-        >>= fun () ->
-        return ()
+        begin match j.Job.start_errors with
+        | l when List.length l <= t.configuration.Configuration.max_update_errors ->
+          j.Job.status <- `Started (now ());
+          j.Job.start_errors <- Error.to_string e :: l;
+          Job.save t.storage j
+        | more ->
+          j.Job.status <-
+            `Error (sprintf
+                      "Starting failed %d times: [ %s ]"
+                      (t.configuration.Configuration.max_update_errors + 1)
+                      (List.dedup more |> String.concat ~sep:" -- "));
+          Job.save t.storage j
+        end
       end
     | `Update j ->
       begin
