@@ -176,25 +176,25 @@ let main () =
     end
     $ begin
       pure (fun s -> `Max_update_errors s)
-        $ Arg.(value & opt int Server.Configuration.Default.max_update_errors &
-               info ["max-update-errors"]
-                 ~doc:"The number of `kubectl` errors allowed before \
-                       considering  a job dead.")
+      $ Arg.(value & opt int Server.Configuration.Default.max_update_errors &
+             info ["max-update-errors"]
+               ~doc:"The number of `kubectl` errors allowed before \
+                     considering  a job dead.")
     end
     $ begin
       pure (fun s -> `Min_sleep s)
-        $ Arg.(value & opt float Server.Configuration.Default.min_sleep &
-               info ["min-sleep"]
-                 ~doc:"The minimal time to wait before reentering the \
-                       “update loop” (events like job submission bypass this \
-                       timer and wake-up the loop any way).")
+      $ Arg.(value & opt float Server.Configuration.Default.min_sleep &
+             info ["min-sleep"]
+               ~doc:"The minimal time to wait before reentering the \
+                     “update loop” (events like job submission bypass this \
+                     timer and wake-up the loop any way).")
     end
     $ begin
       pure (fun s -> `Max_sleep s)
-        $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
-               info ["min-sleep"]
-                 ~doc:"The maximal time to wait before reentering the \
-                       “update loop.”")
+      $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
+             info ["min-sleep"]
+               ~doc:"The maximal time to wait before reentering the \
+                     “update loop.”")
     end
   in
   let configure =
