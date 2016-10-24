@@ -139,8 +139,10 @@ let main () =
     pure begin fun
       (`Name name)
       (`Zone zone)
-      (`Max_nodes max_nodes) ->
+      (`Max_nodes max_nodes)
+      (`Machine_type machine_type) ->
       Kube_cluster.make name ~zone ~max_nodes
+        ~machine_type
     end
     $ required_string "cluster-name" (fun s -> `Name s)
       ~doc:"Name of the Kubernetes cluster."
@@ -152,6 +154,15 @@ let main () =
           required & opt (some int) None
           & info ["max-nodes"]
             ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
+    end
+    $ begin
+      pure (fun s -> `Machine_type s)
+      $ Arg.(
+          value & opt string "n1-highmem-8"
+          & info ["machine-type"]
+            ~doc:"The GCloud machcine-type used for the cluster nodes"
+            ~docv:"NAME"
+        )
     end
   in
   let server_config_term =
@@ -165,25 +176,25 @@ let main () =
     end
     $ begin
       pure (fun s -> `Max_update_errors s)
-        $ Arg.(value & opt int Server.Configuration.Default.max_update_errors &
-               info ["max-update-errors"]
-                 ~doc:"The number of `kubectl` errors allowed before \
-                       considering  a job dead.")
+      $ Arg.(value & opt int Server.Configuration.Default.max_update_errors &
+             info ["max-update-errors"]
+               ~doc:"The number of `kubectl` errors allowed before \
+                     considering  a job dead.")
     end
     $ begin
       pure (fun s -> `Min_sleep s)
-        $ Arg.(value & opt float Server.Configuration.Default.min_sleep &
-               info ["min-sleep"]
-                 ~doc:"The minimal time to wait before reentering the \
-                       “update loop” (events like job submission bypass this \
-                       timer and wake-up the loop any way).")
+      $ Arg.(value & opt float Server.Configuration.Default.min_sleep &
+             info ["min-sleep"]
+               ~doc:"The minimal time to wait before reentering the \
+                     “update loop” (events like job submission bypass this \
+                     timer and wake-up the loop any way).")
     end
     $ begin
       pure (fun s -> `Max_sleep s)
-        $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
-               info ["min-sleep"]
-                 ~doc:"The maximal time to wait before reentering the \
-                       “update loop.”")
+      $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
+             info ["min-sleep"]
+               ~doc:"The maximal time to wait before reentering the \
+                     “update loop.”")
     end
   in
   let configure =
