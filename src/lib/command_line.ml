@@ -139,8 +139,10 @@ let main () =
     pure begin fun
       (`Name name)
       (`Zone zone)
-      (`Max_nodes max_nodes) ->
+      (`Max_nodes max_nodes)
+      (`Machine_type machine_type) ->
       Kube_cluster.make name ~zone ~max_nodes
+        ~machine_type
     end
     $ required_string "cluster-name" (fun s -> `Name s)
       ~doc:"Name of the Kubernetes cluster."
@@ -152,6 +154,15 @@ let main () =
           required & opt (some int) None
           & info ["max-nodes"]
             ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
+    end
+    $ begin
+      pure (fun s -> `Machine_type s)
+      $ Arg.(
+          value & opt string "n1-highmem-8"
+          & info ["machine-type"]
+            ~doc:"The GCloud machcine-type used for the cluster nodes"
+            ~docv:"NAME"
+        )
     end
   in
   let server_config_term =
