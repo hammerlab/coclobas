@@ -55,6 +55,18 @@ let on_store t msg ~f =
     f s
   end
 
+let run_garbage_collection t =
+  let cmd = sprintf "cd %s ; git gc --aggressive" t.root in
+  Pvem_lwt_unix.System.Shell.do_or_fail cmd
+  >>< begin function
+  | `Ok () -> return ()
+  | `Error e ->
+    dbg "Error with `%s`:\n%s\n" cmd
+      Pvem_lwt_unix.System.(error_to_string e);
+    return ()
+  end
+  
+
 let update t k v =
   let msg = sprintf "Update /%s" (String.concat ~sep:"/" k) in
   on_store t msg ~f:(fun s ->
