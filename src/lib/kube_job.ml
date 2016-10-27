@@ -202,30 +202,44 @@ let start ~log t =
     (command_must_succeed ~additional_json ~log t)
     "kubectl create -f %s" tmp
 
-let save_command ~storage ~log t ~cmd ~path_kind =
+let save_command ~storage ~log t ~cmd ~path_kind ~keep_the =
   begin
     command_must_succeed_with_output ~log t cmd
     >>< function
     | `Ok (out, err) ->
-      Storage.update storage (make_path (id t) path_kind) (out ^ err)
+      let new_output = out ^ err in
+      begin match keep_the with
+      | `Latest ->
+        Storage.update storage (make_path (id t) path_kind) new_output
+      | `Largest ->
+        Storage.read storage (make_path (id t) path_kind)
+        >>= begin function
+        | Some old when String.length old > String.length new_output ->
+          return ()
+        | Some _ (* smaller *) | None ->
+          Storage.update storage (make_path (id t) path_kind) new_output
+        end
+      end
       >>= fun () ->
-      return (`Fresh, out)
+      return (`Fresh, new_output)
     | `Error (`Shell_command _ as e) ->
       Storage.read storage (make_path (id t) path_kind)
       >>= begin function
       | Some old -> return (`Archived e, old)
       | None -> fail e
       end
-    | `Error e -> fail e
+    | `Error (`Log _ as e) -> fail e
   end
 
 let describe ~storage ~log t =
   let cmd = sprintf "kubectl describe pod %s" (id t) in
   save_command ~storage ~log t ~cmd ~path_kind:`Describe_output
+    ~keep_the:`Latest
 
 let get_logs ~storage ~log t =
   let cmd = sprintf "kubectl logs %s" (id t) in
   save_command ~storage ~log t ~cmd ~path_kind:`Logs_output
+    ~keep_the:`Largest
 
 
 let kill ~log t =
