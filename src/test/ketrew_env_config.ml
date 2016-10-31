@@ -11,7 +11,11 @@ open Ketrew.Configuration
 let debug_level = 2
 
 let engine =
-  engine ~database_parameters:"/tmp/ketrew/database" ()
+  let database_parameters =
+    "postgresql://127.0.0.1/?user=postgres&password=kpass"
+    (* :"/tmp/ketrew/database" *)
+  in
+  engine ~database_parameters ()
 
 let env_exn s =
   try Sys.getenv s with _ -> ksprintf failwith "Missing environment variable: %S" s
