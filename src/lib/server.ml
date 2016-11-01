@@ -11,18 +11,20 @@ module Configuration = struct
     let min_sleep = 3.
     let max_sleep = 180.
     let max_update_errors = 10
+    let concurrent_steps = 5
   end
 
   type t = {
     min_sleep: float [@default Default.min_sleep];
     max_sleep: float [@default Default.max_sleep];
     max_update_errors: int [@default Default.max_update_errors];
+    concurrent_steps: int [@default Default.concurrent_steps];
   } [@@deriving make, yojson, show]
 
   let path = ["server"; "configuration.json"]
 
   let save ~storage conf =
-  Storage.Json.save_jsonable storage (to_yojson conf) ~path
+    Storage.Json.save_jsonable storage (to_yojson conf) ~path
 
   let get st = Storage.Json.get_json st ~path ~parse:of_yojson
 end
@@ -191,7 +193,9 @@ let rec loop:
     t.jobs_to_kill <- [];
     log_event t (`Loop_begins (todo))
     >>= fun () ->
-    let todo_batches = batch_list ~max_items:10 todo in
+    let todo_batches =
+      batch_list ~max_items:t.configuration.Configuration.concurrent_steps todo
+    in
     Pvem_lwt_unix.Deferred_list.while_sequential todo_batches ~f:begin fun batch ->
       Pvem_lwt_unix.Deferred_list.for_concurrent todo ~f:begin function
       | `Remove j ->

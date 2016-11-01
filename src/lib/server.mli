@@ -6,12 +6,14 @@ module Configuration : sig
     val min_sleep : float
     val max_sleep : float
     val max_update_errors : int
+    val concurrent_steps : int
   end
 
   type t = {
     min_sleep: float [@default Default.min_sleep];
     max_sleep: float [@default Default.max_sleep];
     max_update_errors: int [@default Default.max_update_errors];
+    concurrent_steps: int [@default Default.concurrent_steps];
   } [@@deriving make, yojson, show]
 
   val save :

@@ -169,6 +169,7 @@ let main () =
     let open Term in
     pure begin fun
       (`Max_update_errors max_update_errors)
+      (`Concurrent_steps concurrent_steps)
       (`Min_sleep min_sleep)
       (`Max_sleep max_sleep) ->
       Server.Configuration.make ()
@@ -180,6 +181,13 @@ let main () =
              info ["max-update-errors"]
                ~doc:"The number of `kubectl` errors allowed before \
                      considering  a job dead.")
+    end
+    $ begin
+      pure (fun s -> `Concurrent_steps s)
+      $ Arg.(value & opt int Server.Configuration.Default.concurrent_steps &
+             info ["concurrent-steps"]
+               ~doc:"The maximal number of concurrent actions done by the \
+                     server loop.")
     end
     $ begin
       pure (fun s -> `Min_sleep s)
