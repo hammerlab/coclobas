@@ -60,12 +60,19 @@ let log_event t e =
       ] @ moar_json)
   in
   let stringf fmt = ksprintf (fun s -> `String s) fmt in
+  let count l f =
+    List.fold l ~init:0 ~f:(fun p k -> p + (if f k then 1 else 0)) in
+  let int i = stringf "%d" i in
   let current_jobs () =
-    `List (List.map t.jobs ~f:(fun j ->
-        `Assoc [
-          "id", `String (Job.id j);
-          "status", (Job.status j |> Job.Status.to_yojson);
-        ])) in
+    let count_status f = count t.jobs (fun j -> Job.status j |> f) in
+    `Assoc [
+      "cardinal", List.length t.jobs |> int;
+      "submitted", count_status (function `Submitted -> true | _ -> false) |> int;
+      "started", count_status (function `Started _ -> true | _ -> false) |> int;
+      "errors", count_status (function `Error _ -> true | _ -> false) |> int;
+      "finished", count_status (function `Finished _ -> true | _ -> false) |> int;
+    ];
+  in
   let subsection, json =
     match e with
     | `Ready ->
@@ -73,17 +80,22 @@ let log_event t e =
       json_event "start-with-jobs" [
         "jobs", current_jobs ();
       ]
-    | `Loop_begins (started_jobs, todo) ->
+    | `Loop_begins (started_jobs, todo, batches) ->
+      let ctodo = count todo in
       "loop",
       json_event "loop-begins" [
-        "todo", `List
-          (List.map todo ~f:(function
-             | `Remove j -> stringf "rm %s" (Job.id j)
-             | `Kill j -> stringf "kill %s" (Job.id j)
-             | `Start j -> stringf "start %s" (Job.id j)
-             | `Update j -> stringf "update %s" (Job.id j)));
+        "batches",
+        stringf "[%s]"
+          (List.map batches ~f:(fun b -> sprintf "%d" (List.length b))
+           |> String.concat ~sep:", ");
+        "todo", `Assoc [
+          "remove", ctodo (function `Remove _ -> true | _ -> false) |> int;
+          "kill", ctodo (function `Kill _ -> true | _ -> false) |> int;
+          "start", ctodo (function `Start _ -> true | _ -> false) |> int;
+          "update", ctodo (function `Update _ -> true | _ -> false) |> int;
+        ];
         "jobs", current_jobs ();
-        "started_jobs", `String (Int.to_string started_jobs);
+        "started_jobs", int started_jobs;
       ]
     | `Loop_ends (sleep, errors) ->
       "loop",
@@ -205,11 +217,11 @@ let rec loop:
           )
     in
     t.jobs_to_kill <- [];
-    log_event t (`Loop_begins (started_jobs, todo))
-    >>= fun () ->
     let todo_batches =
       batch_list ~max_items:t.configuration.Configuration.concurrent_steps todo
     in
+    log_event t (`Loop_begins (started_jobs, todo, todo_batches))
+    >>= fun () ->
     Pvem_lwt_unix.Deferred_list.while_sequential todo_batches ~f:begin fun batch ->
       Pvem_lwt_unix.Deferred_list.for_concurrent batch ~f:begin function
       | `Remove j ->
