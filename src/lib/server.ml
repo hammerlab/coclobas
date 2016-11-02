@@ -211,7 +211,7 @@ let rec loop:
       batch_list ~max_items:t.configuration.Configuration.concurrent_steps todo
     in
     Pvem_lwt_unix.Deferred_list.while_sequential todo_batches ~f:begin fun batch ->
-      Pvem_lwt_unix.Deferred_list.for_concurrent todo ~f:begin function
+      Pvem_lwt_unix.Deferred_list.for_concurrent batch ~f:begin function
       | `Remove j ->
         (* We call these functions once to give them a chance to save the output
            before Kubernetes forgets about the job: *)
