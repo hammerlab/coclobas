@@ -25,6 +25,10 @@ val get :
         [> Storage.Error.common | `Missing_data of string | `Of_json of string ] ])
     Deferred_result.t
 
+val max_started_jobs: t -> int
+(** How many jobs should Coclobas try to start on this cluster. *)
+
+
 val gcloud_start :
   log:Log.t ->
   t ->

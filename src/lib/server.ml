@@ -73,7 +73,7 @@ let log_event t e =
       json_event "start-with-jobs" [
         "jobs", current_jobs ();
       ]
-    | `Loop_begins todo ->
+    | `Loop_begins (started_jobs, todo) ->
       "loop",
       json_event "loop-begins" [
         "todo", `List
@@ -83,6 +83,7 @@ let log_event t e =
              | `Start j -> stringf "start %s" (Job.id j)
              | `Update j -> stringf "update %s" (Job.id j)));
         "jobs", current_jobs ();
+        "started_jobs", `String (Int.to_string started_jobs);
       ]
     | `Loop_ends (sleep, errors) ->
       "loop",
@@ -178,20 +179,33 @@ let rec loop:
     let and_sleep =
       Option.value and_sleep ~default:t.configuration.Configuration.min_sleep in
     let now () = Unix.gettimeofday () in
-    let todo =
-      List.fold t.jobs ~init:[] ~f:(fun prev j ->
-          match Job.status j with
-          | `Error _
-          | `Finished _ -> `Remove j :: prev
-          | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
-            `Kill j :: prev
-          | `Submitted -> `Start j :: prev
-          | `Started time when time +. 30. > now () -> prev
-          | `Started _ -> `Update j :: prev
-        )
+    let `Started started_jobs, todo =
+      let currently_started =
+        List.fold t.jobs ~init:0 ~f:(fun c j ->
+            match Job.status j with
+            | `Started _ -> c + 1
+            | _ -> c) in
+      let max_started = Kube_cluster.max_started_jobs t.cluster in
+      List.fold t.jobs ~init:(`Started currently_started, [])
+        ~f:(fun (`Started started, todo) j ->
+            match Job.status j with
+            | `Error _
+            | `Finished _ ->
+              (`Started (started - 1), `Remove j :: todo)
+            | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
+              (`Started started, `Kill j :: todo)
+            | `Submitted when started >= max_started ->
+              (`Started started, todo)
+            | `Submitted ->
+              (`Started (started + 1), `Start j :: todo)
+            | `Started time when time +. 30. > now () ->
+              (`Started started, todo)
+            | `Started _ ->
+              (`Started started, `Update j :: todo)
+          )
     in
     t.jobs_to_kill <- [];
-    log_event t (`Loop_begins (todo))
+    log_event t (`Loop_begins (started_jobs, todo))
     >>= fun () ->
     let todo_batches =
       batch_list ~max_items:t.configuration.Configuration.concurrent_steps todo
@@ -311,10 +325,12 @@ let rec loop:
     ]
     >>= fun kicked ->
     let and_sleep =
-      match todo, kicked with
-      | [], false ->
+      let still_some_submitted =
+        List.exists t.jobs ~f:(fun j -> Job.status j = `Submitted) in
+      match todo, kicked, still_some_submitted with
+      | [], false, false ->
         min t.configuration.Configuration.max_sleep (and_sleep *. 2.)
-      | _, _ -> t.configuration.Configuration.min_sleep in
+      | _, _, _ -> t.configuration.Configuration.min_sleep in
     loop ~and_sleep t
 
 let initialization t =
