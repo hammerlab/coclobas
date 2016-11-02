@@ -203,7 +203,7 @@ let rec loop:
             match Job.status j with
             | `Error _
             | `Finished _ ->
-              (`Started (started - 1), `Remove j :: todo)
+              (`Started started, `Remove j :: todo)
             | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
               (`Started started, `Kill j :: todo)
             | `Submitted when started >= max_started ->
