@@ -77,11 +77,6 @@ let read t k =
   on_store t msg ~f:(fun s ->
       wrap (fun () -> Store.read s k))
 
-let list t k =
-  let msg = sprintf "List /%s" (String.concat ~sep:"/" k) in
-  on_store t msg ~f:(fun s ->
-      wrap (fun () -> Store.list s k))
-
 let empty t =
   Lwt_mutex.with_lock t.store_mutex begin fun () ->
     begin

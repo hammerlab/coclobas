@@ -28,10 +28,6 @@ val read : t -> key ->
   (value option,
    [> `Storage of [> Error.common] ]) Deferred_result.t
 
-val list : t -> key ->
-  (key list,
-   [> `Storage of [> Error.common] ]) Deferred_result.t
-
 val empty: t ->
   (unit,
    [> `Storage of[> Error.common] ]) Deferred_result.t
