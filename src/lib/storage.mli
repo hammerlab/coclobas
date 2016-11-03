@@ -33,10 +33,6 @@ val empty: t ->
   (unit,
    [> `Storage of[> Error.common] ]) Deferred_result.t
 
-val run_garbage_collection:
-  t ->
-  (unit, 'a) Deferred_result.t
-
 module Json : sig
 
   val save_jsonable : t -> path:key -> Yojson.Safe.json ->

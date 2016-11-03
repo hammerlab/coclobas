@@ -79,9 +79,6 @@ let on_store t ~f =
     f s
   end
 
-let run_garbage_collection t =
-  return ()
-
 let update t k v : (unit, [> `Storage of [> Error.common] ] ) Deferred_result.t =
   on_store t ~f:(fun s ->
       let action =

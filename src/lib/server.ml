@@ -326,11 +326,6 @@ let rec loop:
       exit 5
     end
     >>= fun () ->
-    begin if and_sleep > t.configuration.Configuration.min_sleep +. 0.1
-      then Storage.run_garbage_collection t.storage
-      else return ()
-    end
-    >>= fun () ->
     Deferred_list.pick_and_cancel [
       (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return false);
       Lwt.(Lwt_condition.wait t.kick_loop >>= fun () -> return (`Ok true));
