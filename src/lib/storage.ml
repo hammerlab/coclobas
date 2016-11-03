@@ -1,139 +1,134 @@
 open Internal_pervasives
 
-module Store =
-  Irmin_unix.Irmin_git.FS
-    (Irmin.Contents.String)
-    (Irmin.Ref.String)
-    (Irmin.Hash.SHA1)
+type key = string list
+type value = string
 
-type key = Store.key
-type value = Store.value
+let key_of_path = String.concat ~sep:"/"
+
 type t = {
-  root: string;
-  mutable store: (string -> Store.t) option;
-  store_mutex: Lwt_mutex.t; (* most operations already have a lock in Irmin *)
-  gzip_level: int;
+  parameters: string;
+  mutable handle: Trakeva_of_uri.t option;
+  store_mutex: Lwt_mutex.t;
+  collection: string;
 }
 
-let make ?(gzip_level = 1) root =
-  {root; store = None; store_mutex = Lwt_mutex.create (); gzip_level}
+let make parameters =
+  {
+    parameters; handle = None;
+    store_mutex = Lwt_mutex.create ();
+    collection = "coclobas";
+  }
 
-let wrap lwt =
-  Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn e))
+module Error = struct
+  type where = [
+    | `Update of key
+    | `Read of key
+    | `Parsing_json of string
+  ]
+  type common = [
+    | `Exn of where * exn
+    | `Backend of where * string
+    | `Of_json of where * string
+    | `Get_json of where * [ `Missing_data ]
+  ]
+  let to_string e =
+    let where w =
+      match w with
+      | `Update u -> sprintf "update: %s" (key_of_path u)
+      | `Read r -> sprintf "read: %s" (key_of_path r)
+      | `Parsing_json js ->
+        sprintf "Parsing json: %s (%d B)"
+          (String.sub js ~index:0 ~length:30 |> Option.value ~default:js)
+          (String.length js)
+    in
+    sprintf "Storage error: %s"
+      begin match e with
+      | `Exn (wh, e) -> sprintf "%s: %s" (where wh) (Printexc.to_string e)
+      | `Backend (wh, s) -> sprintf "%s: Trakeva: %s" (where wh) s
+      | `Of_json (wh, s) -> sprintf "%s: From-Yojson: %s" (where wh) s
+      | `Get_json (wh, `Missing_data) ->
+        sprintf "Get-json: %s: missing data!" (where wh)
+      end
+
+  let wrap_trakeva ~info m =
+    m >>< function
+    | `Ok o -> return o
+    | `Error (`Database trakeva) ->
+      fail (`Storage (`Backend (info, Trakeva.Error.to_string trakeva)))
+    
+end
+let wrap ~info lwt =
+  Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn (info, e)))
 
 let init t =
-  begin
-    Pvem_lwt_unix.System.ensure_directory_path t.root
-    >>< function
-    | `Ok () -> return ()
-    | `Error (`System _ as syserror) ->
-      fail (`Storage (`Init_mkdir (
-          `Path t.root,
-          `Error (Pvem_lwt_unix.System.error_to_string syserror))))
-  end
-  >>= fun () ->
-  let config =
-    Irmin_unix.Irmin_git.config ~root:t.root ~level:t.gzip_level ~bare:true ()
-  in
-  wrap (fun () -> Store.Repo.create config)
-  >>= fun repo ->
-  wrap (fun () -> Store.master Irmin_unix.task repo)
+  Trakeva_of_uri.load t.parameters
 
-let get_store_no_mutex t msg =
-  match t.store with
-  | Some f -> return (f msg)
+let get_store_no_mutex t =
+  match t.handle with
+  | Some h -> return h
   | None ->
     init t
     >>= fun store ->
-    t.store <- Some store;
-    return (store msg)
+    t.handle <- Some store;
+    return store
 
-let on_store t msg ~f =
+let on_store t ~f =
   Lwt_mutex.with_lock t.store_mutex begin fun () ->
-    get_store_no_mutex t msg
+    get_store_no_mutex t
     >>= fun s ->
     f s
   end
 
 let run_garbage_collection t =
-  let cmd = sprintf "cd %s ; git gc --aggressive" t.root in
-  Pvem_lwt_unix.System.Shell.do_or_fail cmd
-  >>< begin function
-  | `Ok () -> return ()
-  | `Error e ->
-    dbg "Error with `%s`:\n%s\n" cmd
-      Pvem_lwt_unix.System.(error_to_string e);
-    return ()
-  end
-  
+  return ()
 
-let update t k v =
-  let msg = sprintf "Update /%s" (String.concat ~sep:"/" k) in
-  on_store t msg ~f:(fun s ->
-      wrap (fun () -> Store.update s k v))
+let update t k v : (unit, [> `Storage of [> Error.common] ] ) Deferred_result.t =
+  on_store t ~f:(fun s ->
+      let action =
+        Trakeva.Action.(set ~collection:t.collection ~key:(key_of_path k) v) in
+      Trakeva_of_uri.act s ~action
+      >>= begin function
+      | `Done -> return ()
+      | `Not_done ->
+        dbg "NOT DONNEEE???? %s %s" (key_of_path k) v;
+        failwith "not-done"
+      end
+    )
+  |> Error.wrap_trakeva ~info:(`Update k)
 
 let read t k =
-  let msg = sprintf "Read /%s" (String.concat ~sep:"/" k) in
-  on_store t msg ~f:(fun s ->
-      wrap (fun () -> Store.read s k))
+  on_store t ~f:(fun s ->
+      Trakeva_of_uri.get s ~collection:t.collection ~key:(key_of_path k))
+  |> Error.wrap_trakeva ~info:(`Read k)
 
 let empty t =
-  Lwt_mutex.with_lock t.store_mutex begin fun () ->
-    begin
-      Pvem_lwt_unix.System.remove t.root
-      >>< function
-      | `Ok () -> return ()
-      | `Error (`System _ as syserror) ->
-        fail (`Storage (`Empty (`Removing (
-            `Path t.root,
-            `Error (Pvem_lwt_unix.System.error_to_string syserror)))))
-    end
-    >>= fun () ->
-    get_store_no_mutex t "Removed"
-    >>= fun _ ->
-    return ()
-  end
+  return ()
 
 
 module Json = struct
-  let of_yojson_error =
+  let of_yojson_error ~info =
     let open Ppx_deriving_yojson_runtime.Result in
     function
     | Ok o -> return o
-    | Error s -> fail (`Storage (`Of_json s))
+    | Error s -> fail (`Storage (`Of_json (info, s)))
 
   let save_jsonable st ~path yo =
     let json = yo |> Yojson.Safe.pretty_to_string ~std:true in
     update st path json
 
   let parse_json_blob ~parse json =
-    wrap (fun () -> Lwt.return (Yojson.Safe.from_string json))
+    let info = (`Parsing_json json) in
+    wrap ~info (fun () -> Lwt.return (Yojson.Safe.from_string json))
     >>= fun yo ->
-    of_yojson_error (parse yo)
+    of_yojson_error ~info (parse yo)
 
   let get_json st ~path ~parse =
     read st path
     >>= begin function
     | Some json -> parse_json_blob ~parse json
-    | None -> fail (`Storage (`Missing_data (String.concat ~sep:"/" path)))
+    | None ->
+      fail (`Storage (`Get_json (`Read path, `Missing_data)))
     end
 end
 
-module Error = struct
-  type common = [
-    | `Exn of exn
-    | `Init_mkdir of [ `Path of string ] * [ `Error of string ]
-    | `Empty of 
-        [ `Removing of [ `Path of string ] * [ `Error of string ] ]
-  ]
-  let to_string =
-    function
-    | `Exn _ as e -> Generic_error.to_string e
-    | `Of_json s -> s
-    | `Missing_data s -> sprintf "Missing data: %s" s
-    | `Init_mkdir (`Path p, `Error e) ->
-      sprintf "Initialization: mkdir of %S failed: %s" p e
-    | `Empty (`Removing (`Path p, `Error e)) ->
-      sprintf "Emptying: removal of %S failed: %s" p e
-end
 

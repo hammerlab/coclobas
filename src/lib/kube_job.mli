@@ -70,10 +70,7 @@ val save :
 val get :
   Storage.t ->
   string ->
-  (t,
-   [> `Storage of
-        [> Storage.Error.common | `Missing_data of string | `Of_json of string ] ])
-    Deferred_result.t
+  (t, [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val start :
   log:Log.t ->

@@ -23,12 +23,7 @@ module Configuration : sig
       Deferred_result.t
   val get :
     Storage.t ->
-    (t,
-     [> `Storage of
-          [> Storage.Error.common
-          | `Missing_data of string
-          | `Of_json of string ] ])
-      Deferred_result.t
+    (t, [> `Storage of [> Storage.Error.common] ]) Deferred_result.t
 end
 
 
@@ -47,6 +42,4 @@ val start: t ->
   (unit,
    [> `Shell_command of Hyper_shell.Error.t
    | `Log of Log.Error.t
-   | `Storage of [> Storage.Error.common
-                 | `Missing_data of string
-                 | `Of_json of string ] ]) Deferred_result.t
+   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t

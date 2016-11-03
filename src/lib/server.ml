@@ -152,7 +152,7 @@ let get_job_list t =
     Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse
     >>< function
     | `Ok ids -> return ids
-    | `Error (`Storage (`Missing_data md)) -> return []
+    | `Error (`Storage (`Get_json (_, `Missing_data))) -> return []
     | `Error other -> fail other
   end
   >>= fun ids ->

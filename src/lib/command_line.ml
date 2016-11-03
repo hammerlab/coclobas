@@ -1,19 +1,31 @@
 open Internal_pervasives
 
 let (//) = Filename.concat
-let db ~root =
-  Storage.make (root // "db")
+
 let log ~root =
  Log.file_tree (root // "logs")
 
-let configure ~root ~cluster ~server =
-  let storage = db ~root in
+let get_storage root =
+  IO.read_file (root // "database_parameters")
+  >>= fun params ->
+  return (Storage.make params)
+  
+let configure ?database root ~cluster ~server =
+  let database_parameters =
+    Option.value database  ~default:(root // "db.sqlite") in
+  System.ensure_directory_path root
+  >>= fun () ->
+  IO.write_file (root // "database_parameters") ~content:database_parameters
+  >>= fun () ->
+  get_storage root
+  >>= fun storage ->
   Kube_cluster.save ~storage cluster
   >>= fun () ->
   Server.Configuration.save ~storage server
 
 let cluster ~root action =
-  let storage = db ~root in
+  get_storage root
+  >>= fun storage ->
   Kube_cluster.get storage
   >>= fun cluster ->
   let log = log ~root in
@@ -70,7 +82,8 @@ let client ~base_url action ids =
 
 
 let start_server ~root ~port =
-  let storage = db root in
+  get_storage root
+  >>= fun storage ->
   Kube_cluster.get storage
   >>= fun cluster ->
   Server.Configuration.get storage
@@ -212,13 +225,23 @@ let main () =
         (`Root root)
         cluster
         server
+        (`Database_parameters database)
         () ->
-        configure ~root ~cluster ~server
+        configure ?database root ~cluster ~server
         |> run_deferred
       end
       $ root_term ()
       $ cluster_term
       $ server_config_term
+      $ begin
+        pure (fun s -> `Database_parameters s)
+        $ Arg.(
+            value & opt (some string) None
+            & info ["database-uri"]
+              ~doc:"Database parameters (Cf. Trakeva backends)."
+              ~docv:"URI"
+          )
+      end
       $ pure () in
     let info = Term.(info "configure" ~doc:"Configure an instance") in
     (term, info) in
