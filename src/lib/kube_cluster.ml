@@ -32,6 +32,9 @@ let command_must_succeed_with_output ~log cluster cmd =
       "cluster", to_yojson cluster
     ]
 
+let max_started_jobs cluster =
+  cluster.max_nodes + 5
+
 let gcloud_start ~log t =
   let cmd =
     (* We use `--image-type=container_vm` because of some problem we have been

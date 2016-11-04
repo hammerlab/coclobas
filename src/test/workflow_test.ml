@@ -3,11 +3,13 @@ open Nonstd
 
 let () =
   let base_url = "http://127.0.0.1:8082" in
+  let tags more = "coclobas" :: "test" :: more in
   let wf =
     let open Ketrew.EDSL in
     let node1 =
       workflow_node without_product
         ~name:"Coclobas test should succeed"
+        ~tags:(tags ["succeeds"])
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
@@ -20,6 +22,7 @@ let () =
     let node2 =
       workflow_node without_product
         ~name:"Coclobas test should fail"
+        ~tags:(tags ["fails"])
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
@@ -32,6 +35,7 @@ let () =
     let node3 =
       workflow_node without_product
         ~name:"Coclobas test uses secret"
+        ~tags:(tags ["succeeds"; "secret"])
         ~make:(
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
@@ -51,6 +55,7 @@ let () =
     let node4 =
       workflow_node without_product
         ~name:"Coclobas test uses Program.t"
+        ~tags:(tags ["succeeds"; "program"])
         ~make:(
           Coclobas_ketrew_backend.Plugin.run_program
             ~base_url
@@ -66,6 +71,7 @@ let () =
         )
     in
     workflow_node without_product
+      ~tags:(tags ["fails"; "toplevel"])
       ~name:"Coclobas test workflow"
       ~edges:[
         depends_on node1;

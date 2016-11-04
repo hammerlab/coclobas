@@ -12,8 +12,7 @@ let findlib_deps = [
   "sosa";
   "pvem_lwt_unix";
   "cohttp.lwt";
-  "irmin.git";
-  "irmin.unix";
+  "trakeva_of_uri";
   "cmdliner";
   "ppx_deriving.std";
   "ppx_deriving_yojson";

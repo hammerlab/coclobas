@@ -11,18 +11,20 @@ module Configuration = struct
     let min_sleep = 3.
     let max_sleep = 180.
     let max_update_errors = 10
+    let concurrent_steps = 5
   end
 
   type t = {
     min_sleep: float [@default Default.min_sleep];
     max_sleep: float [@default Default.max_sleep];
     max_update_errors: int [@default Default.max_update_errors];
+    concurrent_steps: int [@default Default.concurrent_steps];
   } [@@deriving make, yojson, show]
 
   let path = ["server"; "configuration.json"]
 
   let save ~storage conf =
-  Storage.Json.save_jsonable storage (to_yojson conf) ~path
+    Storage.Json.save_jsonable storage (to_yojson conf) ~path
 
   let get st = Storage.Json.get_json st ~path ~parse:of_yojson
 end
@@ -58,12 +60,19 @@ let log_event t e =
       ] @ moar_json)
   in
   let stringf fmt = ksprintf (fun s -> `String s) fmt in
+  let count l f =
+    List.fold l ~init:0 ~f:(fun p k -> p + (if f k then 1 else 0)) in
+  let int i = stringf "%d" i in
   let current_jobs () =
-    `List (List.map t.jobs ~f:(fun j ->
-        `Assoc [
-          "id", `String (Job.id j);
-          "status", (Job.status j |> Job.Status.to_yojson);
-        ])) in
+    let count_status f = count t.jobs (fun j -> Job.status j |> f) in
+    `Assoc [
+      "cardinal", List.length t.jobs |> int;
+      "submitted", count_status (function `Submitted -> true | _ -> false) |> int;
+      "started", count_status (function `Started _ -> true | _ -> false) |> int;
+      "errors", count_status (function `Error _ -> true | _ -> false) |> int;
+      "finished", count_status (function `Finished _ -> true | _ -> false) |> int;
+    ];
+  in
   let subsection, json =
     match e with
     | `Ready ->
@@ -71,16 +80,22 @@ let log_event t e =
       json_event "start-with-jobs" [
         "jobs", current_jobs ();
       ]
-    | `Loop_begins todo ->
+    | `Loop_begins (started_jobs, todo, batches) ->
+      let ctodo = count todo in
       "loop",
       json_event "loop-begins" [
-        "todo", `List
-          (List.map todo ~f:(function
-             | `Remove j -> stringf "rm %s" (Job.id j)
-             | `Kill j -> stringf "kill %s" (Job.id j)
-             | `Start j -> stringf "start %s" (Job.id j)
-             | `Update j -> stringf "update %s" (Job.id j)));
+        "batches",
+        stringf "[%s]"
+          (List.map batches ~f:(fun b -> sprintf "%d" (List.length b))
+           |> String.concat ~sep:", ");
+        "todo", `Assoc [
+          "remove", ctodo (function `Remove _ -> true | _ -> false) |> int;
+          "kill", ctodo (function `Kill _ -> true | _ -> false) |> int;
+          "start", ctodo (function `Start _ -> true | _ -> false) |> int;
+          "update", ctodo (function `Update _ -> true | _ -> false) |> int;
+        ];
         "jobs", current_jobs ();
+        "started_jobs", int started_jobs;
       ]
     | `Loop_ends (sleep, errors) ->
       "loop",
@@ -137,7 +152,7 @@ let get_job_list t =
     Storage.Json.get_json t.storage ~path:["server"; "jobs.json"] ~parse
     >>< function
     | `Ok ids -> return ids
-    | `Error (`Storage (`Missing_data md)) -> return []
+    | `Error (`Storage (`Get_json (_, `Missing_data))) -> return []
     | `Error other -> fail other
   end
   >>= fun ids ->
@@ -158,115 +173,148 @@ let incoming_job t string =
   Lwt_condition.broadcast t.kick_loop ();
   return (`String (Job.id job))
 
+let batch_list ~max_items l =
+  let res = ref [] in
+  let rec go l =
+    match List.split_n l max_items with
+    | some, [] -> res := some :: !res
+    | some, more ->
+      res := some :: !res;
+      go more
+  in
+  go l;
+  List.rev !res
+
 let rec loop:
   ?and_sleep : float -> t -> (unit, _) Deferred_result.t
   = fun ?and_sleep t ->
     let and_sleep =
       Option.value and_sleep ~default:t.configuration.Configuration.min_sleep in
     let now () = Unix.gettimeofday () in
-    let todo =
-      List.fold t.jobs ~init:[] ~f:(fun prev j ->
-          match Job.status j with
-          | `Error _
-          | `Finished _ -> `Remove j :: prev
-          | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
-            `Kill j :: prev
-          | `Submitted -> `Start j :: prev
-          | `Started time when time +. 30. > now () -> prev
-          | `Started _ -> `Update j :: prev
-        )
+    let `Started started_jobs, todo =
+      let currently_started =
+        List.fold t.jobs ~init:0 ~f:(fun c j ->
+            match Job.status j with
+            | `Started _ -> c + 1
+            | _ -> c) in
+      let max_started = Kube_cluster.max_started_jobs t.cluster in
+      List.fold t.jobs ~init:(`Started currently_started, [])
+        ~f:(fun (`Started started, todo) j ->
+            match Job.status j with
+            | `Error _
+            | `Finished _ ->
+              (`Started started, `Remove j :: todo)
+            | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
+              (`Started started, `Kill j :: todo)
+            | `Submitted when started >= max_started ->
+              (`Started started, todo)
+            | `Submitted ->
+              (`Started (started + 1), `Start j :: todo)
+            | `Started time when time +. 30. > now () ->
+              (`Started started, todo)
+            | `Started _ ->
+              (`Started started, `Update j :: todo)
+          )
     in
     t.jobs_to_kill <- [];
-    log_event t (`Loop_begins (todo))
+    let todo_batches =
+      batch_list ~max_items:t.configuration.Configuration.concurrent_steps todo
+    in
+    log_event t (`Loop_begins (started_jobs, todo, todo_batches))
     >>= fun () ->
-    Pvem_lwt_unix.Deferred_list.for_sequential todo ~f:begin function
-    | `Remove j ->
-      (* We call these functions once to give them a chance to save the output
-         before Kubernetes forgets about the job: *)
-      (Job.get_logs ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
-      >>= fun () ->
-      (Job.describe ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
-      >>= fun () ->
-      change_job_list t (`Remove j)
-    | `Kill j ->
-      begin
-        Job.kill ~log:t.log j
-        >>< function
-        | `Ok () ->
-          j.Job.status <- `Finished (now (), `Killed);
+    Pvem_lwt_unix.Deferred_list.while_sequential todo_batches ~f:begin fun batch ->
+      Pvem_lwt_unix.Deferred_list.for_concurrent batch ~f:begin function
+      | `Remove j ->
+        (* We call these functions once to give them a chance to save the output
+           before Kubernetes forgets about the job: *)
+        (Job.get_logs ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+        >>= fun () ->
+        (Job.describe ~storage:t.storage ~log:t.log j >>< fun _ -> return ())
+        >>= fun () ->
+        change_job_list t (`Remove j)
+      | `Kill j ->
+        begin
+          Job.kill ~log:t.log j
+          >>< function
+          | `Ok () ->
+            j.Job.status <- `Finished (now (), `Killed);
+            return ()
+          | `Error e ->
+            j.Job.status <- `Error ("Killing failed: " ^ Error.to_string e);
+            return ()
+        end
+        >>= fun () ->
+        Job.save t.storage j
+      | `Start j ->
+        Job.start ~log:t.log j
+        >>< begin function
+        | `Ok () -> 
+          j.Job.status <- `Started (now ());
+          Job.save t.storage j
+          >>= fun () ->
           return ()
         | `Error e ->
-          j.Job.status <- `Error ("Killing failed: " ^ Error.to_string e);
-          return ()
-      end
-      >>= fun () ->
-      Job.save t.storage j
-    | `Start j ->
-      Job.start ~log:t.log j
-      >>< begin function
-      | `Ok () -> 
-        j.Job.status <- `Started (now ());
-        Job.save t.storage j
-        >>= fun () ->
-        return ()
-      | `Error e ->
-        begin match j.Job.start_errors with
-        | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-          j.Job.status <- `Started (now ());
-          j.Job.start_errors <- Error.to_string e :: l;
-          Job.save t.storage j
-        | more ->
-          j.Job.status <-
-            `Error (sprintf
-                      "Starting failed %d times: [ %s ]"
-                      (t.configuration.Configuration.max_update_errors + 1)
-                      (List.dedup more |> String.concat ~sep:" -- "));
-          Job.save t.storage j
+          begin match j.Job.start_errors with
+          | l when List.length l <= t.configuration.Configuration.max_update_errors ->
+            j.Job.status <- `Started (now ());
+            j.Job.start_errors <- Error.to_string e :: l;
+            Job.save t.storage j
+          | more ->
+            j.Job.status <-
+              `Error (sprintf
+                        "Starting failed %d times: [ %s ]"
+                        (t.configuration.Configuration.max_update_errors + 1)
+                        (List.dedup more |> String.concat ~sep:" -- "));
+            Job.save t.storage j
+          end
+        end
+      | `Update j ->
+        begin
+          Job.get_status_json ~log:t.log j
+          >>= fun blob ->
+          Job.Kube_status.of_json blob
+          >>= fun stat ->
+          let open Job.Kube_status in
+          begin match stat with
+          | { phase = `Pending }
+          | { phase = `Unknown }
+          | { phase = `Running } ->
+            j.Job.status <- `Started (now ());
+            Job.save t.storage j
+            >>= fun () ->
+            return ()
+          | { phase = (`Failed | `Succeeded as phase)} ->
+            j.Job.status <- `Finished (now (), phase);
+            Job.save t.storage j
+            >>= fun () ->
+            return ()
+          end
+        end >>< begin function
+        | `Ok () -> return ()
+        | `Error e ->
+          begin match j.Job.update_errors with
+          | l when List.length l <= t.configuration.Configuration.max_update_errors ->
+            j.Job.status <- `Started (now ());
+            j.Job.update_errors <- Error.to_string e :: l;
+            Job.save t.storage j
+          | more ->
+            j.Job.status <-
+              `Error (sprintf
+                        "Updating failed %d times: [ %s ]"
+                        (t.configuration.Configuration.max_update_errors + 1)
+                        (List.dedup more |> String.concat ~sep:" -- "));
+            Job.save t.storage j
+          end
         end
       end
-    | `Update j ->
-      begin
-        Job.get_status_json ~log:t.log j
-        >>= fun blob ->
-        Job.Kube_status.of_json blob
-        >>= fun stat ->
-        let open Job.Kube_status in
-        begin match stat with
-        | { phase = `Pending }
-        | { phase = `Unknown }
-        | { phase = `Running } ->
-          j.Job.status <- `Started (now ());
-          Job.save t.storage j
-          >>= fun () ->
-          return ()
-        | { phase = (`Failed | `Succeeded as phase)} ->
-          j.Job.status <- `Finished (now (), phase);
-          Job.save t.storage j
-          >>= fun () ->
-          return ()
-        end
-      end >>< begin function
-      | `Ok () -> return ()
-      | `Error e ->
-        begin match j.Job.update_errors with
-        | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-          j.Job.status <- `Started (now ());
-          j.Job.update_errors <- Error.to_string e :: l;
-          Job.save t.storage j
-        | more ->
-          j.Job.status <-
-            `Error (sprintf
-                      "Updating failed %d times: [ %s ]"
-                      (t.configuration.Configuration.max_update_errors + 1)
-                      (List.dedup more |> String.concat ~sep:" -- "));
-          Job.save t.storage j
-        end
-      end
+      >>= fun ((_ : unit list), errors) ->
+      return errors
     end
-    >>= fun ((_ : unit list),
-             (* We make sure only really fatal errors “exit the loop:” *)
-             (errors : [ `Storage of Storage.Error.common
-                       | `Log of Log.Error.t ] list)) ->
+    >>= fun 
+      (* We make sure only really fatal errors “exit the loop:” *)
+      (errors_per_batch : [ `Storage of Storage.Error.common
+                          | `Log of Log.Error.t ] list list) ->
+    let errors = List.concat errors_per_batch in
     log_event t (`Loop_ends (and_sleep, errors))
     >>= fun () ->
     begin match errors with
@@ -278,21 +326,18 @@ let rec loop:
       exit 5
     end
     >>= fun () ->
-    begin if and_sleep > t.configuration.Configuration.min_sleep +. 0.1
-      then Storage.run_garbage_collection t.storage
-      else return ()
-    end
-    >>= fun () ->
     Deferred_list.pick_and_cancel [
       (Pvem_lwt_unix.System.sleep and_sleep >>< fun _ -> return false);
       Lwt.(Lwt_condition.wait t.kick_loop >>= fun () -> return (`Ok true));
     ]
     >>= fun kicked ->
     let and_sleep =
-      match todo, kicked with
-      | [], false ->
+      let still_some_submitted =
+        List.exists t.jobs ~f:(fun j -> Job.status j = `Submitted) in
+      match todo, kicked, still_some_submitted with
+      | [], false, false ->
         min t.configuration.Configuration.max_sleep (and_sleep *. 2.)
-      | _, _ -> t.configuration.Configuration.min_sleep in
+      | _, _, _ -> t.configuration.Configuration.min_sleep in
     loop ~and_sleep t
 
 let initialization t =

@@ -27,7 +27,7 @@ depends: [
   "sosa"
   "pvem_lwt_unix"
   "cohttp" "lwt"
-  "irmin-unix"
+  "trakeva"
   "cmdliner"
   "ppx_deriving"
   "ppx_deriving_yojson" {>= "3.0"}

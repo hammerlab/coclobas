@@ -5,20 +5,21 @@ type key = string list
 type value = string
 
 module Error : sig
-  type common = [
-    | `Exn of exn
-    | `Init_mkdir of [ `Path of string ] * [ `Error of string ]
-    | `Empty of 
-        [ `Removing of [ `Path of string ] * [ `Error of string ] ]
+  type where = [
+    | `Update of key
+    | `Read of key
+    | `Parsing_json of string
   ]
-  val to_string : 
-    [< common
-    | `Missing_data of string
-    | `Of_json of string ] ->
-    string
+  type common = [
+    | `Exn of where * exn
+    | `Backend of where * string
+    | `Of_json of where * string
+    | `Get_json of where * [ `Missing_data ]
+  ]
+  val to_string : [< common ] -> string
 end
 
-val make : ?gzip_level:int -> string -> t
+val make : string -> t
 
 val update : t -> key -> value ->
   (unit,
@@ -28,17 +29,9 @@ val read : t -> key ->
   (value option,
    [> `Storage of [> Error.common] ]) Deferred_result.t
 
-val list : t -> key ->
-  (key list,
-   [> `Storage of [> Error.common] ]) Deferred_result.t
-
 val empty: t ->
   (unit,
    [> `Storage of[> Error.common] ]) Deferred_result.t
-
-val run_garbage_collection:
-  t ->
-  (unit, 'a) Deferred_result.t
 
 module Json : sig
 
@@ -51,17 +44,13 @@ module Json : sig
     parse:(Yojson.Safe.json ->
            ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->
     string ->
-    ('a, [> `Storage of [> `Exn of exn | `Of_json of string ] ]) Deferred_result.t
+    ('a, [> `Storage of [> Error.common ] ]) Deferred_result.t
 
   val get_json : t -> path:key ->
     parse:(Yojson.Safe.json ->
            ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->
     ('a,
-     [> `Storage of
-          [> Error.common
-          | `Missing_data of string
-          | `Of_json of string
-          ]])
+     [> `Storage of [> Error.common]])
       Deferred_result.t
 end
 

@@ -12,6 +12,8 @@ let to_string =
     sprintf "Writing file %S: %s" path (exn e)
   | `IO (`Read_file_exn (path, e)) ->
     sprintf "Reading file %S: %s" path (exn e)
+  | `System _ as e ->
+    Pvem_lwt_unix.System.error_to_string e
   | `Job e -> Kube_job.Error.to_string e
   | `Start_server (`Exn e) ->
     sprintf "Starting Cohttp server: %s" (exn e)

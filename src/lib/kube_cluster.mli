@@ -21,9 +21,13 @@ val save :
 val get :
   Storage.t ->
   (t,
-   [>`Storage of
-        [> Storage.Error.common | `Missing_data of string | `Of_json of string ] ])
+   [>`Storage of [> Storage.Error.common ] ])
     Deferred_result.t
+
+val max_started_jobs: t -> int
+(** The maximum number of jobs that Coclobas will attempt to run
+    simultaneously on the cluster. *)
+
 
 val gcloud_start :
   log:Log.t ->
