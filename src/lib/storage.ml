@@ -55,7 +55,9 @@ module Error = struct
     | `Ok o -> return o
     | `Error (`Database trakeva) ->
       fail (`Storage (`Backend (info, Trakeva.Error.to_string trakeva)))
-    
+    | `Error (`Not_done) ->
+      fail (`Storage (`Backend (info, "Transaction: Not done.")))
+
 end
 let wrap ~info lwt =
   Deferred_result.wrap_deferred lwt ~on_exn:(fun e -> `Storage (`Exn (info, e)))
@@ -87,8 +89,7 @@ let update t k v : (unit, [> `Storage of [> Error.common] ] ) Deferred_result.t 
       >>= begin function
       | `Done -> return ()
       | `Not_done ->
-        dbg "NOT DONNEEE???? %s %s" (key_of_path k) v;
-        failwith "not-done"
+        fail (`Not_done)
       end
     )
   |> Error.wrap_trakeva ~info:(`Update k)
