@@ -25,7 +25,8 @@ val get :
     Deferred_result.t
 
 val max_started_jobs: t -> int
-(** How many jobs should Coclobas try to start on this cluster. *)
+(** The maximum number of jobs that Coclobas will attempt to run
+    simultaneously on the cluster. *)
 
 
 val gcloud_start :
