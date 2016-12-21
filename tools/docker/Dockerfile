@@ -1,5 +1,5 @@
 # We want `ocaml`, `opam`, and the `biokepi` user:
-FROM hammerlab/biokepi-run
+FROM hammerlab/biokepi-run:docker-ketrew-300
 
 # `opam` is the user with `sudo` powers, and the local `opam-repository`
 USER opam
