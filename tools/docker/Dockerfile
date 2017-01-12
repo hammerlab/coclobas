@@ -8,7 +8,8 @@ WORKDIR /home/opam
 
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS true
 RUN bash -c 'curl https://sdk.cloud.google.com | bash'
-RUN bash -c '/home/opam/google-cloud-sdk/bin/gcloud components install kubectl'
+ENV PATH "/home/opam/google-cloud-sdk/bin/:${PATH}"
+RUN gcloud components install kubectl
 
 RUN sudo apt-get install -y  python-pip python-dev build-essential
 RUN sudo pip install --upgrade google-api-python-client
