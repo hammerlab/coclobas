@@ -32,72 +32,20 @@ module Specification = struct
     cpus: int [@default 7];
   } [@@deriving yojson, show, make]
 end
-module Status = struct
-  type t = [
-    | `Submitted
-    | `Started of float
-    | `Finished of float * [ `Failed | `Succeeded | `Killed ]
-    | `Error of string
-  ] [@@deriving yojson,show ] 
-end
 
-type t = {
-  id: string;
-  specification: Specification.t [@main];
-  mutable status: Status.t [@default `Submitted];
-  mutable update_errors : string list;
-  mutable start_errors : string list;
-} [@@deriving yojson, show, make]
-
-let fresh spec =
-    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-    make ~id spec
-
-let id t = t.id
-
-let status t = t.status
-
-let make_path id =
-  function
-  | `Specification -> ["job"; id; "specification.json"]
-  | `Status -> ["job"; id; "status.json"]
-  | `Describe_output -> ["job"; id; "describe.out"]
-  | `Logs_output -> ["job"; id; "logs.out"]
-
-let save st job =
-  Storage.Json.save_jsonable st
-    ~path:(make_path (id job) `Specification)
-    (Specification.to_yojson job.specification)
-  >>= fun () ->
-  Storage.Json.save_jsonable st
-    ~path:(make_path (id job) `Status)
-    (Status.to_yojson job.status)
-
-let get st job_id =
-  Storage.Json.get_json st
-    ~path:(make_path job_id `Specification)
-    ~parse:Specification.of_yojson
-  >>= fun specification ->
-  Storage.Json.get_json st
-    ~path:(make_path job_id `Status)
-    ~parse:Status.of_yojson
-  >>= fun status ->
-  return {id = job_id; specification; status;
-          update_errors = []; start_errors = []}
-
-let command_must_succeed ~log ?additional_json job cmd =
+let command_must_succeed ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed ~log cmd ?additional_json
-    ~section:["job"; id job; "commands"]
-let command_must_succeed_with_output ~log ?additional_json job cmd =
+    ~section:["job"; id; "commands"]
+let command_must_succeed_with_output ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed_with_output ~log cmd ?additional_json
-    ~section:["job"; id job; "commands"]
+    ~section:["job"; id; "commands"]
 
-let start ~log t =
-  let spec = t.specification in
+let start ~log ~id ~specification =
+  let spec = specification in
   let open Specification in
   let secret_name f =
     String.take
-      (t.id ^ (Digest.string (File_contents_mount.show f) |> Digest.to_hex))
+      (id ^ (Digest.string (File_contents_mount.show f) |> Digest.to_hex))
       55 (* The max is 63 + we want to add "-volume" *)
   in
   let requests_json =
@@ -128,16 +76,16 @@ let start ~log t =
           "apiVersion", `String "v1";
           "kind", `String "Pod";
           "metadata", `Assoc [
-            "name", `String t.id;
+            "name", `String id;
             "labels", `Assoc [
-              "app", `String t.id;
+              "app", `String id;
             ];
           ];
           "spec", `Assoc [
             "restartPolicy", `String "Never";
             "containers", `List [
               `Assoc [
-                "name", `String (t.id ^ "container");
+                "name", `String (id ^ "container");
                 "image", `String spec.image;
                 "command", `List (List.map spec.command ~f:(fun s -> `String s));
                 "volumeMounts",
@@ -199,31 +147,31 @@ let start ~log t =
     "contents", json;
   ] in
   ksprintf
-    (command_must_succeed ~additional_json ~log t)
+    (command_must_succeed ~additional_json ~log ~id)
     "kubectl create -f %s" tmp
 
-let save_command ~storage ~log t ~cmd ~path_kind ~keep_the =
+let save_command ~storage ~log ~id ~cmd ~path ~keep_the =
   begin
-    command_must_succeed_with_output ~log t cmd
+    command_must_succeed_with_output ~log ~id cmd
     >>< function
     | `Ok (out, err) ->
       let new_output = out ^ err in
       begin match keep_the with
       | `Latest ->
-        Storage.update storage (make_path (id t) path_kind) new_output
+        Storage.update storage path new_output
       | `Largest ->
-        Storage.read storage (make_path (id t) path_kind)
+        Storage.read storage path
         >>= begin function
         | Some old when String.length old > String.length new_output ->
           return ()
         | Some _ (* smaller *) | None ->
-          Storage.update storage (make_path (id t) path_kind) new_output
+          Storage.update storage path new_output
         end
       end
       >>= fun () ->
       return (`Fresh, new_output)
     | `Error (`Shell_command _ as e) ->
-      Storage.read storage (make_path (id t) path_kind)
+      Storage.read storage path
       >>= begin function
       | Some old -> return (`Archived e, old)
       | None -> fail e
@@ -231,24 +179,24 @@ let save_command ~storage ~log t ~cmd ~path_kind ~keep_the =
     | `Error (`Log _ as e) -> fail e
   end
 
-let describe ~storage ~log t =
-  let cmd = sprintf "kubectl describe pod %s" (id t) in
-  save_command ~storage ~log t ~cmd ~path_kind:`Describe_output
+let describe ~storage ~log ~id ~save_path =
+  let cmd = sprintf "kubectl describe pod %s" id in
+  save_command ~storage ~log ~id ~cmd ~path:save_path
     ~keep_the:`Latest
 
-let get_logs ~storage ~log t =
-  let cmd = sprintf "kubectl logs %s" (id t) in
-  save_command ~storage ~log t ~cmd ~path_kind:`Logs_output
+let get_logs ~storage ~log ~id ~save_path =
+  let cmd = sprintf "kubectl logs %s" id in
+  save_command ~storage ~log ~id ~cmd ~path:save_path
     ~keep_the:`Largest
 
 
-let kill ~log t =
-  let cmd = sprintf "kubectl delete pod %s" t.id in
-  command_must_succeed ~log t cmd
+let kill ~log ~id =
+  let cmd = sprintf "kubectl delete pod %s" id in
+  command_must_succeed ~log ~id cmd
 
-let get_status_json ~log t =
-  let cmd = sprintf "kubectl get pod %s -o=json" (id t) in
-  command_must_succeed_with_output ~log t cmd
+let get_status_json ~log ~id =
+  let cmd = sprintf "kubectl get pod %s -o=json" id in
+  command_must_succeed_with_output ~log ~id cmd
   >>= fun (out, _) ->
   return out
 

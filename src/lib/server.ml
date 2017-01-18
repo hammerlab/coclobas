@@ -1,46 +1,6 @@
 
 open Internal_pervasives
 
-module Cluster = struct
-  type t =
-    | Kube of Kube_cluster.t
-  [@@deriving yojson, show]
-
-  let save ~storage:st cluster =
-    Storage.Json.save_jsonable
-      st (to_yojson cluster)
-      ~path:["cluster"; "default"; "definition.json"]
-
-  let get st =
-    Storage.Json.get_json
-      st ~path:["cluster"; "default"; "definition.json"]
-      ~parse:of_yojson
-
-  let kube k = Kube k
-
-  let max_started_jobs =
-    function
-    | Kube k -> Kube_cluster.max_started_jobs k
-
-  let ensure_living =
-    function
-    | Kube k -> Kube_cluster.ensure_living k
-
-  let do_log_t f ~log =
-    function
-    | Kube k -> f ~log k
-  let start ~log t = do_log_t Kube_cluster.gcloud_start ~log t
-  let delete ~log t = do_log_t Kube_cluster.gcloud_delete ~log t
-  let describe ~log t = do_log_t Kube_cluster.gcloud_describe ~log t
-
-  let display_name =
-    function
-    | Kube k ->
-      sprintf "GCloud-Kube-%s@%s" k.Kube_cluster.name k.Kube_cluster.zone
-
-end
-
-module Job = Kube_job
 
 module Configuration = struct
 
@@ -274,10 +234,10 @@ let rec loop:
           Job.kill ~log:t.log j
           >>< function
           | `Ok () ->
-            j.Job.status <- `Finished (now (), `Killed);
+            Job.set_status j @@ `Finished (now (), `Killed);
             return ()
           | `Error e ->
-            j.Job.status <- `Error ("Killing failed: " ^ Error.to_string e);
+            Job.set_status j @@ `Error ("Killing failed: " ^ Error.to_string e);
             return ()
         end
         >>= fun () ->
@@ -286,18 +246,18 @@ let rec loop:
         Job.start ~log:t.log j
         >>< begin function
         | `Ok () -> 
-          j.Job.status <- `Started (now ());
+          Job.set_status j @@ `Started (now ());
           Job.save t.storage j
           >>= fun () ->
           return ()
         | `Error e ->
-          begin match j.Job.start_errors with
+          begin match Job.start_errors j with
           | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-            j.Job.status <- `Started (now ());
-            j.Job.start_errors <- Error.to_string e :: l;
+            Job.set_status j @@ `Started (now ());
+            Job.set_start_errors j @@ Error.to_string e :: l;
             Job.save t.storage j
           | more ->
-            j.Job.status <-
+            Job.set_status j @@
               `Error (sprintf
                         "Starting failed %d times: [ %s ]"
                         (t.configuration.Configuration.max_update_errors + 1)
@@ -307,21 +267,16 @@ let rec loop:
         end
       | `Update j ->
         begin
-          Job.get_status_json ~log:t.log j
-          >>= fun blob ->
-          Job.Kube_status.of_json blob
+          Job.get_update ~log:t.log j
           >>= fun stat ->
-          let open Job.Kube_status in
           begin match stat with
-          | { phase = `Pending }
-          | { phase = `Unknown }
-          | { phase = `Running } ->
-            j.Job.status <- `Started (now ());
+          | `Running ->
+            Job.set_status j @@  `Started (now ());
             Job.save t.storage j
             >>= fun () ->
             return ()
-          | { phase = (`Failed | `Succeeded as phase)} ->
-            j.Job.status <- `Finished (now (), phase);
+          | (`Failed | `Succeeded as phase) ->
+            Job.set_status j @@ `Finished (now (), phase);
             Job.save t.storage j
             >>= fun () ->
             return ()
@@ -329,13 +284,13 @@ let rec loop:
         end >>< begin function
         | `Ok () -> return ()
         | `Error e ->
-          begin match j.Job.update_errors with
+          begin match Job.update_errors j with
           | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-            j.Job.status <- `Started (now ());
-            j.Job.update_errors <- Error.to_string e :: l;
+            Job.set_status j @@ `Started (now ());
+            Job.set_update_errors j @@ Error.to_string e :: l;
             Job.save t.storage j
           | more ->
-            j.Job.status <-
+            Job.set_status j @@ 
               `Error (sprintf
                         "Updating failed %d times: [ %s ]"
                         (t.configuration.Configuration.max_update_errors + 1)
@@ -443,8 +398,8 @@ let kill_jobs t ids =
 let get_jobs t =
   let jobs = List.map t.jobs (fun j ->
       (`Assoc [
-          "id", `String j.Job.id;
-          "status", `String (Job.Status.show j.Job.status);
+          "id", `String (Job.id j);
+          "status", `String (Job.Status.show (Job.status j));
         ])) in
   let json = (`List jobs) in
   return (`Json json)

@@ -76,7 +76,7 @@ let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
 
 let get_kube_job_statuses t ids =
   get_kube_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
-    ~of_yojson:Kube_job.Status.of_yojson
+    ~of_yojson:Job.Status.of_yojson
 
 let get_json_keys ~uri ~parsers json =
   begin match json with

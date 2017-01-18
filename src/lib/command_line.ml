@@ -19,29 +19,29 @@ let configure ?database root ~cluster ~server =
   >>= fun () ->
   get_storage root
   >>= fun storage ->
-  Server.Cluster.save ~storage cluster
+  Cluster.save ~storage cluster
   >>= fun () ->
   Server.Configuration.save ~storage server
 
 let cluster ~root action =
   get_storage root
   >>= fun storage ->
-  Server.Cluster.get storage
+  Cluster.get storage
   >>= fun cluster ->
   let log = log ~root in
   begin match action with
   | `Start ->
-    Server.Cluster.start ~log cluster
+    Cluster.start ~log cluster
     >>= fun () ->
-    printf "Cluster %s: Started\n%!" (Server.Cluster.display_name cluster);
+    printf "Cluster %s: Started\n%!" (Cluster.display_name cluster);
     return ()
   | `Delete ->
-    Server.Cluster.delete ~log cluster
+    Cluster.delete ~log cluster
     >>= fun () ->
-    printf "Cluster %s: Deleted\n%!" (Server.Cluster.display_name cluster);
+    printf "Cluster %s: Deleted\n%!" (Cluster.display_name cluster);
     return ()
   | `Describe ->
-    Server.Cluster.describe ~log cluster
+    Cluster.describe ~log cluster
     >>= fun (out, err) ->
     printf "OUT:\n%s\nERR:\n%s\n%!" out err;
     return ()
@@ -64,7 +64,7 @@ let client ~base_url action ids =
     Client.get_kube_job_statuses client ids
     >>= fun statuses ->
     List.iter statuses ~f:(fun (r, s) ->
-      printf "%s is %s\n" r (Kube_job.Status.show s))
+      printf "%s is %s\n" r (Job.Status.show s))
     |> return
   | `List ->
     Client.get_job_list client
@@ -80,7 +80,7 @@ let client ~base_url action ids =
 let start_server ~root ~port =
   get_storage root
   >>= fun storage ->
-  Server.Cluster.get storage
+  Cluster.get storage
   >>= fun cluster ->
   Server.Configuration.get storage
   >>= fun configuration ->
@@ -152,7 +152,7 @@ let main () =
       (`Machine_type machine_type) ->
       Kube_cluster.make name ~zone ~max_nodes
         ~machine_type
-      |> Server.Cluster.kube
+      |> Cluster.kube
     end
     $ required_string "cluster-name" (fun s -> `Name s)
       ~doc:"Name of the Kubernetes cluster."

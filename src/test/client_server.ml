@@ -97,7 +97,7 @@ let get_status how ids =
       match res with
       | `Ok stats ->
         return (List.map stats ~f:(fun (id, st) ->
-            sprintf "%s: %s" id (Coclobas.Kube_job.Status.show st)))
+            sprintf "%s: %s" id (Coclobas.Job.Status.show st)))
       | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
     )
   end
