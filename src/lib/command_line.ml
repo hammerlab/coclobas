@@ -19,33 +19,29 @@ let configure ?database root ~cluster ~server =
   >>= fun () ->
   get_storage root
   >>= fun storage ->
-  Kube_cluster.save ~storage cluster
+  Server.Cluster.save ~storage cluster
   >>= fun () ->
   Server.Configuration.save ~storage server
 
 let cluster ~root action =
   get_storage root
   >>= fun storage ->
-  Kube_cluster.get storage
+  Server.Cluster.get storage
   >>= fun cluster ->
   let log = log ~root in
   begin match action with
   | `Start ->
-    Kube_cluster.gcloud_start ~log cluster
+    Server.Cluster.start ~log cluster
     >>= fun () ->
-    printf "Cluster %s@%s: Started\n%!"
-      cluster.Kube_cluster.name
-      cluster.Kube_cluster.zone;
+    printf "Cluster %s: Started\n%!" (Server.Cluster.display_name cluster);
     return ()
   | `Delete ->
-    Kube_cluster.gcloud_delete ~log cluster
+    Server.Cluster.delete ~log cluster
     >>= fun () ->
-    printf "Cluster %s@%s: Deleted\n%!"
-      cluster.Kube_cluster.name
-      cluster.Kube_cluster.zone;
+    printf "Cluster %s: Deleted\n%!" (Server.Cluster.display_name cluster);
     return ()
   | `Describe ->
-    Kube_cluster.gcloud_describe ~log cluster
+    Server.Cluster.describe ~log cluster
     >>= fun (out, err) ->
     printf "OUT:\n%s\nERR:\n%s\n%!" out err;
     return ()
@@ -84,7 +80,7 @@ let client ~base_url action ids =
 let start_server ~root ~port =
   get_storage root
   >>= fun storage ->
-  Kube_cluster.get storage
+  Server.Cluster.get storage
   >>= fun cluster ->
   Server.Configuration.get storage
   >>= fun configuration ->
@@ -156,6 +152,7 @@ let main () =
       (`Machine_type machine_type) ->
       Kube_cluster.make name ~zone ~max_nodes
         ~machine_type
+      |> Server.Cluster.kube
     end
     $ required_string "cluster-name" (fun s -> `Name s)
       ~doc:"Name of the Kubernetes cluster."
