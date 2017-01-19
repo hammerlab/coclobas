@@ -4,6 +4,9 @@ module Specification = struct
   type t =
     | Kube of Kube_job.Specification.t
   [@@deriving yojson, show]
+  let kind =
+    function
+    | Kube _ -> `Kube
   let kubernetes spec = Kube spec
 end
 
@@ -69,9 +72,7 @@ let get st job_id =
   return {id = job_id; specification; status;
           update_errors = []; start_errors = []}
 
-let kind t =
-  match t.specification with
-  | Specification.Kube _ -> `Kube
+let kind t = Specification.kind t.specification
 
 let get_logs ~storage ~log t =
   match kind t with

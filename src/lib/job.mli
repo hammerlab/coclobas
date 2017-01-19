@@ -10,6 +10,7 @@ end
 module Specification : sig
   type t
   [@@deriving yojson,show ] 
+  val kind: t -> [ `Kube ]
   val kubernetes: Kube_job.Specification.t -> t
 end
 

@@ -18,3 +18,6 @@ let to_string =
   | `Start_server (`Exn e) ->
     sprintf "Starting Cohttp server: %s" (exn e)
   | `Client err -> Client.Error.to_string err
+  | `Invalid_job_submission (`Wrong_backend (`Kube, `Local_docker)) ->
+    sprintf "Invalid job submission: backend mismatch: \
+             job wants Kubernetes, cluster is Local-docker"

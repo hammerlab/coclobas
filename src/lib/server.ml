@@ -162,6 +162,12 @@ let get_job_list t =
 let incoming_job t string =
   Storage.Json.parse_json_blob ~parse:Job.Specification.of_yojson string
   >>= fun spec ->
+  begin match Job.Specification.kind spec, Cluster.kind t.cluster with
+  | (`Kube, `GCloud_kubernetes) -> return ()
+  | (`Kube, `Local_docker) ->
+    fail (`Invalid_job_submission (`Wrong_backend (`Kube, `Local_docker)))
+  end
+  >>= fun () ->
   let job = Job.fresh spec in
   Job.save t.storage job
   >>= fun () ->
