@@ -3,7 +3,7 @@ open Coclobas
 open Internal_pervasives
 let (//) = Filename.concat
 
-let name = "coclobas-kube"
+let name = "coclobas"
 
 module Run_parameters = struct
 
@@ -84,7 +84,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
   type run_parameters = Run_parameters.t
   include Run_parameters
 
-  let name = "coclobas-kube"
+  let name = "coclobas"
 
   module KLRU = Ketrew.Long_running_utilities
 
@@ -167,7 +167,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     fun rp ~host_io ->
       running rp begin fun job_id client spec ->
         classify_client_error begin
-          Client.get_kube_job_statuses client [job_id]
+          Client.get_job_statuses client [job_id]
           >>= fun statuses ->
           begin match statuses with
           | [(_, st)] ->
@@ -195,7 +195,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     fun rp ~host_io ->
       running rp begin fun id client spec ->
         classify_client_error begin
-          Client.kill_kube_jobs client [id]
+          Client.kill_jobs client [id]
           >>= fun () ->
           return (`Killed rp)
         end
@@ -250,6 +250,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       description_list [
         "Client", uri c.client.Coclobas.Client.base_url;
         "Program", option ~f:Ketrew_pure.Program.markup c.program; 
+        "Playground-path", option ~f:command c.playground_path; 
         "Job", job_spec c.specification;
       ]
     | `Running rp ->
@@ -275,8 +276,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Running c ->
         (
           ("ketrew-markup/job-status", s "Get the “raw” job status")
-          :: ("kubectl-describe", s "Get the `describe` blob from Kubernetes")
-          :: ("kubectl-logs", s "Get the `logs` blob from Kubernetes")
+          :: ("describe", s "Get a description of the job's current state")
+          :: ("logs", s "Get the `logs` blob")
           :: common
         )
 
@@ -306,7 +307,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         end
       | "ketrew-markup/job-status", `Running {job_id; _} ->
         client_query begin
-          Client.get_kube_job_statuses created.client
+          Client.get_job_statuses created.client
             [job_id]
           >>= fun l ->
           return Ketrew_pure.Internal_pervasives.Display_markup.(
@@ -326,25 +327,25 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                    ))
               |> serialize)
         end
-      | "kubectl-describe" , `Running {job_id; _} ->
+      | "describe" , `Running {job_id; _} ->
         client_query begin
-          Client.get_kube_job_descriptions created.client [job_id]
+          Client.get_job_descriptions created.client [job_id]
           >>= fun l ->
           let rendered =
             List.map l ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
-                sprintf "### Kube-Job %s\n### Freshness: %s\n### Output:\n\n%s"
+                sprintf "### Job %s\n### Freshness: %s\n### Output:\n\n%s"
                   id frns o)
             |> String.concat ~sep:"\n"
           in
           return rendered
         end
-      | "kubectl-logs", `Running {job_id; _} ->
+      | "logs", `Running {job_id; _} ->
         client_query begin
-          Client.get_kube_job_logs created.client [job_id]
+          Client.get_job_logs created.client [job_id]
           >>= fun l ->
           let rendered =
             List.map l ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
-                sprintf "### Kube-Job %s\n### Freshness: %s\n### Output:\n\n%s"
+                sprintf "### Job %s\n### Freshness: %s\n### Output:\n\n%s"
                   id frns o)
             |> String.concat ~sep:"\n"
           in

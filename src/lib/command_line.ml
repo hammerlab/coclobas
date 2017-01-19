@@ -52,7 +52,7 @@ let client ~base_url action ids =
   let client = Client.{base_url} in
   begin match action with
   | `Describe ->
-    Client.get_kube_job_descriptions client ids
+    Client.get_job_descriptions client ids
     >>= fun descs ->
     List.iter descs
       ~f:(fun (`Id id, `Describe_output d, `Freshness f) ->
@@ -61,7 +61,7 @@ let client ~base_url action ids =
                   %s\n\n" id f d)
     |> return
   | `Status ->
-    Client.get_kube_job_statuses client ids
+    Client.get_job_statuses client ids
     >>= fun statuses ->
     List.iter statuses ~f:(fun (r, s) ->
       printf "%s is %s\n" r (Job.Status.show s))
@@ -73,7 +73,7 @@ let client ~base_url action ids =
         printf "%s is %s\n" i s);
     return ()
   | `Kill ->
-    Client.kill_kube_jobs client ids
+    Client.kill_jobs client ids
   end
 
 

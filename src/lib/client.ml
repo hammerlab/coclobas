@@ -49,7 +49,7 @@ let submit_job {base_url} spec =
   >>= fun () ->
   return body
 
-let get_kube_job_jsons {base_url} ~path ~ids  =
+let get_job_jsons {base_url} ~path ~ids  =
   let uri = uri_of_ids base_url path ids in
   do_get uri
   >>= fun (resp, body) ->
@@ -57,8 +57,8 @@ let get_kube_job_jsons {base_url} ~path ~ids  =
   >>= fun () ->
   wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
 
-let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
-  get_kube_job_jsons t ~path ~ids
+let get_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   begin match json with
@@ -76,8 +76,8 @@ let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_kube_job_statuses t ids =
-  get_kube_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
+let get_job_statuses t ids =
+  get_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
     ~of_yojson:Job.Status.of_yojson
 
 let get_json_keys ~uri ~parsers json =
@@ -101,9 +101,9 @@ let get_json_keys ~uri ~parsers json =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_kube_job_descriptions t ids =
+let get_job_descriptions t ids =
   let path = "job/describe" in
-  get_kube_job_jsons t ~path ~ids
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   let get_string name =
@@ -128,9 +128,9 @@ let get_kube_job_descriptions t ids =
         (String.concat ~sep:", " other)
   )
 
-let get_kube_job_logs t ids =
+let get_job_logs t ids =
   let path = "job/logs" in
-  get_kube_job_jsons t ~path ~ids
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   let get_string name =
@@ -155,7 +155,7 @@ let get_kube_job_logs t ids =
         (String.concat ~sep:", " other)
   )
 
-let kill_kube_jobs {base_url} ids =
+let kill_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in
   do_get uri
   >>= fun (resp, body) ->

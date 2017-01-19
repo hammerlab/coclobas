@@ -90,7 +90,7 @@ let get_status how ids =
     Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
   | `Client ->
     Coclobas.Client.(
-      get_kube_job_statuses
+      get_job_statuses
         (make (make_url ""))
         ids
       >>= fun res ->
