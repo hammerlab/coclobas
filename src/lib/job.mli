@@ -8,10 +8,13 @@ module Status : sig
 end
 
 module Specification : sig
-  type t
+  type t = private
+    | Kube of Kube_job.Specification.t
+    | Local_docker of Local_docker_job.Specification.t
   [@@deriving yojson,show ] 
-  val kind: t -> [ `Kube ]
+  val kind: t -> [> `Kube | `Local_docker ]
   val kubernetes: Kube_job.Specification.t -> t
+  val local_docker: Local_docker_job.Specification.t -> t
 end
 
 type t
@@ -89,7 +92,9 @@ val get_update :
   t ->
   ([> `Failed | `Running | `Succeeded ],
    [> `Job of
-        [> `Kube_json_parsing of
+        [> `Docker_inspect_json_parsing of
+             string * [> `Exn of exn | `String of string ]
+        | `Kube_json_parsing of
              string * [> `Exn of exn | `String of string ] ]
    | `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t ])

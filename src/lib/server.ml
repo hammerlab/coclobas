@@ -164,8 +164,10 @@ let incoming_job t string =
   >>= fun spec ->
   begin match Job.Specification.kind spec, Cluster.kind t.cluster with
   | (`Kube, `GCloud_kubernetes) -> return ()
-  | (`Kube, `Local_docker) ->
-    fail (`Invalid_job_submission (`Wrong_backend (`Kube, `Local_docker)))
+  | (`Local_docker, `Local_docker) -> return ()
+  | tuple -> (* we could run local-docker jobs with a kube cluster but that would
+            mess with the maximum number of jobs to submit *)
+    fail (`Invalid_job_submission (`Wrong_backend tuple))
   end
   >>= fun () ->
   let job = Job.fresh spec in

@@ -3,11 +3,14 @@ open Internal_pervasives
 module Specification = struct
   type t =
     | Kube of Kube_job.Specification.t
+    | Local_docker of Local_docker_job.Specification.t
   [@@deriving yojson, show]
   let kind =
     function
     | Kube _ -> `Kube
+    | Local_docker _ -> `Local_docker
   let kubernetes spec = Kube spec
+  let local_docker spec = Local_docker spec
 end
 
 module Status = struct
@@ -79,22 +82,30 @@ let get_logs ~storage ~log t =
   | `Kube ->
     let save_path = make_path t.id `Logs_output in
     Kube_job.get_logs ~storage ~log ~id:t.id ~save_path
+  | `Local_docker ->
+    Local_docker_job.get_logs ~log ~id:t.id
 
 let describe ~storage ~log t =
   match kind t with
   | `Kube ->
     let save_path = make_path t.id `Describe_output in
     Kube_job.describe ~storage ~log ~id:t.id ~save_path
+  | `Local_docker ->
+    Local_docker_job.describe ~log ~id:t.id
 
 let kill ~log t =
   match kind t with
   | `Kube ->
     Kube_job.kill ~log ~id:t.id
+  | `Local_docker ->
+    Local_docker_job.kill ~log ~id:t.id
 
 let start ~log t =
   match t.specification with
   | Specification.Kube specification ->
     Kube_job.start ~log ~id:t.id ~specification
+  | Specification.Local_docker specification ->
+    Local_docker_job.start ~log ~id:t.id ~specification
 
 let get_update ~log t =
   match kind t with
@@ -112,3 +123,5 @@ let get_update ~log t =
     | { phase = (`Failed | `Succeeded as phase)} ->
       return phase
     end
+  | `Local_docker ->
+    Local_docker_job.get_update ~log ~id:t.id
