@@ -26,10 +26,11 @@ let uri_of_ids base_url path ids =
     (Uri.with_path (Uri.of_string base_url) path)
     ["id", ids]
 
-let response_is_ok ~uri ~meth resp =
+let response_is_ok ~uri ~meth ~body resp =
   begin match Cohttp.Response.status resp with
   | `OK -> return ()
-  | other -> fail (`Client (`Response (meth, uri, resp)))
+  | other ->
+    fail (`Client (`Response (meth, uri, resp, body)))
   end
 
 let submit_kube_job {base_url} spec =
@@ -42,17 +43,17 @@ let submit_kube_job {base_url} spec =
   in
   wrap_io (fun () -> Cohttp_lwt_unix.Client.post uri ~body)
   >>= fun (resp, ret_body) ->
-  response_is_ok  resp ~meth:`Post ~uri
-  >>= fun () ->
   wrap_io (fun () -> Cohttp_lwt_body.to_string ret_body)
-  >>= fun id ->
-  return id
+  >>= fun body ->
+  response_is_ok  resp ~meth:`Post ~uri ~body
+  >>= fun () ->
+  return body
 
 let get_kube_job_jsons {base_url} ~path ~ids  =
   let uri = uri_of_ids base_url path ids in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok ~body resp ~meth:`Get ~uri
   >>= fun () ->
   wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
 
@@ -158,13 +159,13 @@ let kill_kube_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok resp ~body ~meth:`Get ~uri
 
 let get_server_status_string {base_url} =
   let uri = Uri.with_path (Uri.of_string base_url) "status" in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok resp ~body ~meth:`Get ~uri
   >>= fun () ->
   return body
 
@@ -204,12 +205,13 @@ module Error = struct
         (Uri.to_string uri)
         problem
         (Yojson.Safe.pretty_to_string json)
-    | `Response (meth, uri, resp) ->
-      sprintf "Client.Response: URI: %s, Meth: %s, Resp: %s"
+    | `Response (meth, uri, resp, body) ->
+      sprintf "Client.Response: URI: %s, Meth: %s, Resp: %s, Body: %s"
         (Uri.to_string uri)
         begin match meth with
         | `Post -> "POST"
         | `Get -> "GET"
         end
         (Cohttp.Response.sexp_of_t resp |> Sexplib.Sexp.to_string_hum)
+        body
 end
