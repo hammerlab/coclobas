@@ -4,6 +4,7 @@ module Specification = struct
   type t =
     | Kube of Kube_job.Specification.t
   [@@deriving yojson, show]
+  let kubernetes spec = Kube spec
 end
 
 module Status = struct
