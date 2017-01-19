@@ -166,7 +166,7 @@ let main () =
       in
       match cluster_kind with
       | `GKE ->
-        Kube_cluster.make
+        Gke_cluster.make
           (i_need gke_name "A cluster-name is required for GKE clusters.")
           ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
           ~max_nodes

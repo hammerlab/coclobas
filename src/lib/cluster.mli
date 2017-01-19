@@ -16,7 +16,7 @@ val get :
   Storage.t ->
   (t, [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
-val gke : Kube_cluster.t -> t
+val gke : Gke_cluster.t -> t
 
 val local_docker: max_jobs:int -> t
 
