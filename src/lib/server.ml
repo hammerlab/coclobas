@@ -259,7 +259,6 @@ let rec loop:
         | `Error e ->
           begin match Job.start_errors j with
           | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-            Job.set_status j @@ `Started (now ());
             Job.set_start_errors j @@ Error.to_string e :: l;
             Job.save t.storage j
           | more ->
