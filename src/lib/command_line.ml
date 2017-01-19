@@ -171,7 +171,7 @@ let main () =
           ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
           ~max_nodes
           ?machine_type
-        |> Cluster.kube
+        |> Cluster.gke
       | `Local_docker ->
         Cluster.local_docker ~max_jobs:max_nodes
     end

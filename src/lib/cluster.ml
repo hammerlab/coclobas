@@ -24,7 +24,7 @@ let get st =
     st ~path:["cluster"; "default"; "definition.json"]
     ~parse:of_yojson
 
-let kube k = Kube k
+let gke k = Kube k
 
 let local_docker ~max_jobs = Local_docker {max_jobs}
 
