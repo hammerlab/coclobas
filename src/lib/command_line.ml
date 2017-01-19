@@ -105,6 +105,14 @@ let required_string ~doc optname f =
       required & opt (some string) None
       & info [optname] ~doc)
 
+let optional_string ~doc optname f =
+  let open Cmdliner in
+  let open Term in
+  pure f
+  $ Arg.(
+      value & opt (some string) None
+      & info [optname] ~doc)
+
 let root_term () =
   required_string "root" (fun s -> `Root s)
     ~doc:"The root of the configuration"
@@ -146,18 +154,36 @@ let main () =
   let cluster_term =
     let open Term in
     pure begin fun
-      (`Name name)
-      (`Zone zone)
+      cluster_kind
+      (`GCloud_kube_name gke_name)
+      (`GCloud_zone gzone)
       (`Max_nodes max_nodes)
       (`Machine_type machine_type) ->
-      Kube_cluster.make name ~zone ~max_nodes
-        ~machine_type
-      |> Cluster.kube
+      let i_need opt msg =
+        match opt with
+        | None -> eprintf "ERROR: %s\n%!" msg; failwith "Invalid command line"
+        | Some o -> o
+      in
+      match cluster_kind with
+      | `GKE ->
+        Kube_cluster.make
+          (i_need gke_name "A cluster-name is required for GKE clusters.")
+          ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
+          ~max_nodes
+          ?machine_type
+        |> Cluster.kube
+      | `Local_docker ->
+        Cluster.local_docker ~max_jobs:max_nodes
     end
-    $ required_string "cluster-name" (fun s -> `Name s)
-      ~doc:"Name of the Kubernetes cluster."
-    $ required_string "cluster-zone" (fun s -> `Zone s)
-      ~doc:"Zone of the Kubernetes cluster."
+    $ Arg.(
+        required
+        & opt (enum ["gke", `GKE; "local-docker", `Local_docker] |> some) None
+        & info ["cluster-kind"]
+          ~doc:"Kind of cluster." ~docv:"KIND")
+    $ optional_string "gke-cluster-name" (fun s -> `GCloud_kube_name s)
+      ~doc:"Name of the GCloud-Kubernetes cluster."
+    $ optional_string "gcloud-zone" (fun s -> `GCloud_zone s)
+      ~doc:"Zone of the GCloud-Kubernetes cluster."
     $ begin
       pure (fun s -> `Max_nodes s)
       $ Arg.(
@@ -165,15 +191,8 @@ let main () =
           & info ["max-nodes"]
             ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
     end
-    $ begin
-      pure (fun s -> `Machine_type s)
-      $ Arg.(
-          value & opt string "n1-highmem-8"
-          & info ["machine-type"]
-            ~doc:"The GCloud machcine-type used for the cluster nodes"
-            ~docv:"NAME"
-        )
-    end
+    $ optional_string "machine-type" (fun s -> `Machine_type s)
+      ~doc:"The GCloud machine-type (used for the GCloud-kubernetes nodes)"
   in
   let server_config_term =
     let open Term in
