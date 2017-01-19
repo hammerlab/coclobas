@@ -33,12 +33,12 @@ let response_is_ok ~uri ~meth ~body resp =
     fail (`Client (`Response (meth, uri, resp, body)))
   end
 
-let submit_kube_job {base_url} spec =
+let submit_job {base_url} spec =
   let uri =
     Uri.with_path (Uri.of_string base_url) "job/submit" in
   let body =
     Cohttp_lwt_body.of_string
-      (Job.Specification.(kubernetes spec |> to_yojson)
+      (Job.Specification.to_yojson spec
        |> Yojson.Safe.pretty_to_string)
   in
   wrap_io (fun () -> Cohttp_lwt_unix.Client.post uri ~body)

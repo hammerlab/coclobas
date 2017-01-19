@@ -1,6 +1,7 @@
 
 open Coclobas
 open Internal_pervasives
+let (//) = Filename.concat
 
 let name = "coclobas-kube"
 
@@ -8,8 +9,9 @@ module Run_parameters = struct
 
   type created = {
     client: Client.t;
-    specification: Kube_job.Specification.t [@main];
-    program: Ketrew_pure.Program.t option; (* Kept for display purposes *)
+    specification: Job.Specification.t [@main];
+    program: Ketrew_pure.Program.t option;
+    playground_path: string option;
   } [@@deriving yojson, make]
   type running = {
     created: created;
@@ -34,12 +36,13 @@ module Run_parameters = struct
     | Error e -> failwith e
 end
 
-let create ~base_url specification =
+let create ~base_url ?playground_path ?program specification =
   let created =
-    Run_parameters.make_created ~client:(Client.make base_url) specification in
+    Run_parameters.make_created ?playground_path
+      ?program ~client:(Client.make base_url) specification in
   `Long_running (name, `Created created |> Run_parameters.serialize)
 
-let run_program ~base_url ~image ?(volume_mounts = []) p =
+let kubernetes_program ~base_url ~image ?(volume_mounts = []) p =
   let script_path = "/coclo-kube/mount/script" in
   let script =
     Kube_job.Specification.File_contents_mount.make
@@ -55,12 +58,26 @@ let run_program ~base_url ~image ?(volume_mounts = []) p =
       ~image
       ~volume_mounts:(`Constant script :: volume_mounts)
       ["bash"; script_path]
+    |> Job.Specification.kubernetes
   in
-  let created =
-    Run_parameters.make_created ~client:(Client.make base_url)
-      ~program:p spec in
-  `Long_running (name, `Created created |> Run_parameters.serialize)
+  create ~base_url ~program:p spec
 
+let extra_mount_container_side = "/coclobas-ketrew-plugin-playground"
+let script_filename = "program-monitored-script"
+
+let local_docker_program ~base_url ~image ?(volume_mounts = []) p =
+  let playground_path =
+    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
+    sprintf "/tmp/%s.sh" id in
+  let extra_mount =
+    `Local (playground_path, extra_mount_container_side) in
+  create ~base_url ~program:p ~playground_path
+    (Coclobas.Job.Specification.local_docker
+       Coclobas.Local_docker_job.Specification.(
+         make ~image
+           ~volume_mounts:(extra_mount :: volume_mounts)
+           ["sh"; sprintf "%s/%s" extra_mount_container_side script_filename]
+       ))
 
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 
@@ -81,6 +98,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       fail (`Fatal (sprintf "Expecting one status but got: [%s]"
                       (List.map l ~f:(fun (id, st) -> id)
                        |> String.concat ~sep:"; ")))
+    | `Error (`Coclo_plugin (`Preparing_script msg)) ->
+      fail (`Fatal (sprintf "Preparing script: %s" msg))
 
   let start :
     run_parameters ->
@@ -91,9 +110,41 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Running _ ->
         ksprintf KLRU.fail_fatal "start on already running: %s"
           (Run_parameters.show rp)
-      | `Created ({client; specification; _} as created) ->
+      | `Created ({client; specification;
+                   program; playground_path} as created) ->
         classify_client_error begin
-          Client.submit_kube_job client specification
+          begin match Job.Specification.kind specification,
+                      playground_path, program with
+          | `Local_docker, None, Some _ ->
+            fail (`Coclo_plugin (`Preparing_script
+                                   "Program provided but missing playground!"))
+          | `Local_docker, Some playground, Some prog ->
+            begin
+              let script =
+                Ketrew_pure.Monitored_script.(
+                  create prog
+                    ~playground:(Ketrew_pure.Path.absolute_directory_exn
+                                   extra_mount_container_side)
+                  |> to_string
+                ) in
+              System.ensure_directory_path playground
+              >>= fun () ->
+              IO.write_file ~content:script (playground // script_filename)
+            end >>< begin function
+            | `Ok () -> return ()
+            | `Error e ->
+              let msg =
+                sprintf "I/O/System Error: %s"
+                  (match e with
+                  | `IO _ as e -> IO.error_to_string e
+                  | `System _ as e -> System.error_to_string e) in
+              fail (`Coclo_plugin (`Preparing_script msg))
+            end
+          | `Local_docker, _, None (* No program means, no need for playground *)
+          | `Kube, _, _ -> return ()
+          end
+          >>= fun () ->
+          Client.submit_job client specification
           >>= fun job_id ->
           return (`Running {created; job_id})
         end
@@ -153,7 +204,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
   let rec markup : t -> Ketrew_pure.Internal_pervasives.Display_markup.t =
     let open Ketrew_pure.Internal_pervasives.Display_markup in
     let job_spec js =
+      let open Coclobas.Job.Specification in
       let open Coclobas.Kube_job.Specification in
+      let open Coclobas.Local_docker_job.Specification in
       let nfs_mount nfs =
         let open Nfs_mount in
         description_list  [
@@ -169,17 +222,29 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           "Path", uri cst.path;
           "Contents", code_block cst.contents;
         ] in
-      description_list [
-        "Image", uri js.image;
-        "Command", command (String.concat ~sep:" " js.command);
-        "Memory", (match js.memory with `GB x -> textf "%d GB" x);
-        "CPUs", textf "%d" js.cpus;
-        "Volumes",
-        (List.map js.volume_mounts ~f:(function
-           | `Nfs nfs -> "NFS", nfs_mount nfs
-           | `Constant cst -> "Constant", constant_mount cst)
-         |> description_list);
-      ] in
+      match js with
+      | Kube kube ->
+        description_list [
+          "Image", uri kube.image;
+          "Command", command (String.concat ~sep:" " kube.command);
+          "Memory", (match kube.memory with `GB x -> textf "%d GB" x);
+          "CPUs", textf "%d" kube.cpus;
+          "Volumes",
+          (List.map kube.volume_mounts ~f:(function
+             | `Nfs nfs -> "NFS", nfs_mount nfs
+             | `Constant cst -> "Constant", constant_mount cst)
+           |> description_list);
+        ]
+      | Local_docker dock ->
+        description_list [
+          "Image", uri dock.image;
+          "Command", command (String.concat ~sep:" " dock.command);
+          "Volumes",
+          (List.map dock.volume_mounts ~f:(function
+             | `Local (f, t) -> "Local", textf "%s:%s" f t)
+           |> description_list);
+        ]
+    in
     function
     | `Created c ->
       description_list [

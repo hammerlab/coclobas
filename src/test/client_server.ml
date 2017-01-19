@@ -67,9 +67,9 @@ let submit_job how job =
     return (List.hd_exn lines)
   | `Client ->
     Coclobas.Client.(
-      submit_kube_job
+      submit_job
         (make (make_url ""))
-        job
+        (Coclobas.Job.Specification.kubernetes job)
       >>= fun res ->
       match res with
       | `Ok id -> return id
