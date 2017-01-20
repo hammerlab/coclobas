@@ -19,33 +19,29 @@ let configure ?database root ~cluster ~server =
   >>= fun () ->
   get_storage root
   >>= fun storage ->
-  Kube_cluster.save ~storage cluster
+  Cluster.save ~storage cluster
   >>= fun () ->
   Server.Configuration.save ~storage server
 
 let cluster ~root action =
   get_storage root
   >>= fun storage ->
-  Kube_cluster.get storage
+  Cluster.get storage
   >>= fun cluster ->
   let log = log ~root in
   begin match action with
   | `Start ->
-    Kube_cluster.gcloud_start ~log cluster
+    Cluster.start ~log cluster
     >>= fun () ->
-    printf "Cluster %s@%s: Started\n%!"
-      cluster.Kube_cluster.name
-      cluster.Kube_cluster.zone;
+    printf "Cluster %s: Started\n%!" (Cluster.display_name cluster);
     return ()
   | `Delete ->
-    Kube_cluster.gcloud_delete ~log cluster
+    Cluster.delete ~log cluster
     >>= fun () ->
-    printf "Cluster %s@%s: Deleted\n%!"
-      cluster.Kube_cluster.name
-      cluster.Kube_cluster.zone;
+    printf "Cluster %s: Deleted\n%!" (Cluster.display_name cluster);
     return ()
   | `Describe ->
-    Kube_cluster.gcloud_describe ~log cluster
+    Cluster.describe ~log cluster
     >>= fun (out, err) ->
     printf "OUT:\n%s\nERR:\n%s\n%!" out err;
     return ()
@@ -56,7 +52,7 @@ let client ~base_url action ids =
   let client = Client.{base_url} in
   begin match action with
   | `Describe ->
-    Client.get_kube_job_descriptions client ids
+    Client.get_job_descriptions client ids
     >>= fun descs ->
     List.iter descs
       ~f:(fun (`Id id, `Describe_output d, `Freshness f) ->
@@ -65,10 +61,10 @@ let client ~base_url action ids =
                   %s\n\n" id f d)
     |> return
   | `Status ->
-    Client.get_kube_job_statuses client ids
+    Client.get_job_statuses client ids
     >>= fun statuses ->
     List.iter statuses ~f:(fun (r, s) ->
-      printf "%s is %s\n" r (Kube_job.Status.show s))
+      printf "%s is %s\n" r (Job.Status.show s))
     |> return
   | `List ->
     Client.get_job_list client
@@ -77,14 +73,14 @@ let client ~base_url action ids =
         printf "%s is %s\n" i s);
     return ()
   | `Kill ->
-    Client.kill_kube_jobs client ids
+    Client.kill_jobs client ids
   end
 
 
 let start_server ~root ~port =
   get_storage root
   >>= fun storage ->
-  Kube_cluster.get storage
+  Cluster.get storage
   >>= fun cluster ->
   Server.Configuration.get storage
   >>= fun configuration ->
@@ -107,6 +103,14 @@ let required_string ~doc optname f =
   pure f
   $ Arg.(
       required & opt (some string) None
+      & info [optname] ~doc)
+
+let optional_string ~doc optname f =
+  let open Cmdliner in
+  let open Term in
+  pure f
+  $ Arg.(
+      value & opt (some string) None
       & info [optname] ~doc)
 
 let root_term () =
@@ -150,17 +154,36 @@ let main () =
   let cluster_term =
     let open Term in
     pure begin fun
-      (`Name name)
-      (`Zone zone)
+      cluster_kind
+      (`GCloud_kube_name gke_name)
+      (`GCloud_zone gzone)
       (`Max_nodes max_nodes)
       (`Machine_type machine_type) ->
-      Kube_cluster.make name ~zone ~max_nodes
-        ~machine_type
+      let i_need opt msg =
+        match opt with
+        | None -> eprintf "ERROR: %s\n%!" msg; failwith "Invalid command line"
+        | Some o -> o
+      in
+      match cluster_kind with
+      | `GKE ->
+        Gke_cluster.make
+          (i_need gke_name "A cluster-name is required for GKE clusters.")
+          ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
+          ~max_nodes
+          ?machine_type
+        |> Cluster.gke
+      | `Local_docker ->
+        Cluster.local_docker ~max_jobs:max_nodes
     end
-    $ required_string "cluster-name" (fun s -> `Name s)
-      ~doc:"Name of the Kubernetes cluster."
-    $ required_string "cluster-zone" (fun s -> `Zone s)
-      ~doc:"Zone of the Kubernetes cluster."
+    $ Arg.(
+        required
+        & opt (enum ["gke", `GKE; "local-docker", `Local_docker] |> some) None
+        & info ["cluster-kind"]
+          ~doc:"Kind of cluster." ~docv:"KIND")
+    $ optional_string "gke-cluster-name" (fun s -> `GCloud_kube_name s)
+      ~doc:"Name of the GCloud-Kubernetes cluster."
+    $ optional_string "gcloud-zone" (fun s -> `GCloud_zone s)
+      ~doc:"Zone of the GCloud-Kubernetes cluster."
     $ begin
       pure (fun s -> `Max_nodes s)
       $ Arg.(
@@ -168,15 +191,8 @@ let main () =
           & info ["max-nodes"]
             ~doc:"Maximum number of nodes in the cluster." ~docv:"NUMBER")
     end
-    $ begin
-      pure (fun s -> `Machine_type s)
-      $ Arg.(
-          value & opt string "n1-highmem-8"
-          & info ["machine-type"]
-            ~doc:"The GCloud machcine-type used for the cluster nodes"
-            ~docv:"NAME"
-        )
-    end
+    $ optional_string "machine-type" (fun s -> `Machine_type s)
+      ~doc:"The GCloud machine-type (used for the GCloud-kubernetes nodes)"
   in
   let server_config_term =
     let open Term in

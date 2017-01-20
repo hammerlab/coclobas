@@ -27,13 +27,14 @@ module Configuration : sig
 end
 
 
+
 type t
 
 val create :
   port:int ->
   configuration: Configuration.t ->
   root:string ->
-  cluster:Kube_cluster.t ->
+  cluster:Cluster.t ->
   storage:Storage.t ->
   log:Log.t ->
   t

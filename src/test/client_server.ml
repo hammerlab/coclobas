@@ -67,9 +67,9 @@ let submit_job how job =
     return (List.hd_exn lines)
   | `Client ->
     Coclobas.Client.(
-      submit_kube_job
+      submit_job
         (make (make_url ""))
-        job
+        (Coclobas.Job.Specification.kubernetes job)
       >>= fun res ->
       match res with
       | `Ok id -> return id
@@ -90,14 +90,14 @@ let get_status how ids =
     Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
   | `Client ->
     Coclobas.Client.(
-      get_kube_job_statuses
+      get_job_statuses
         (make (make_url ""))
         ids
       >>= fun res ->
       match res with
       | `Ok stats ->
         return (List.map stats ~f:(fun (id, st) ->
-            sprintf "%s: %s" id (Coclobas.Kube_job.Status.show st)))
+            sprintf "%s: %s" id (Coclobas.Job.Status.show st)))
       | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
     )
   end

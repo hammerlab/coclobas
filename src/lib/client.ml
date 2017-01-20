@@ -26,37 +26,39 @@ let uri_of_ids base_url path ids =
     (Uri.with_path (Uri.of_string base_url) path)
     ["id", ids]
 
-let response_is_ok ~uri ~meth resp =
+let response_is_ok ~uri ~meth ~body resp =
   begin match Cohttp.Response.status resp with
   | `OK -> return ()
-  | other -> fail (`Client (`Response (meth, uri, resp)))
+  | other ->
+    fail (`Client (`Response (meth, uri, resp, body)))
   end
 
-let submit_kube_job {base_url} spec =
+let submit_job {base_url} spec =
   let uri =
     Uri.with_path (Uri.of_string base_url) "job/submit" in
   let body =
     Cohttp_lwt_body.of_string
-      (Kube_job.Specification.to_yojson spec |> Yojson.Safe.pretty_to_string)
+      (Job.Specification.to_yojson spec
+       |> Yojson.Safe.pretty_to_string)
   in
   wrap_io (fun () -> Cohttp_lwt_unix.Client.post uri ~body)
   >>= fun (resp, ret_body) ->
-  response_is_ok  resp ~meth:`Post ~uri
-  >>= fun () ->
   wrap_io (fun () -> Cohttp_lwt_body.to_string ret_body)
-  >>= fun id ->
-  return id
+  >>= fun body ->
+  response_is_ok  resp ~meth:`Post ~uri ~body
+  >>= fun () ->
+  return body
 
-let get_kube_job_jsons {base_url} ~path ~ids  =
+let get_job_jsons {base_url} ~path ~ids  =
   let uri = uri_of_ids base_url path ids in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok ~body resp ~meth:`Get ~uri
   >>= fun () ->
   wrap_parsing (fun () -> Lwt.return (Yojson.Safe.from_string body))
 
-let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
-  get_kube_job_jsons t ~path ~ids
+let get_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   begin match json with
@@ -74,9 +76,9 @@ let get_kube_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_kube_job_statuses t ids =
-  get_kube_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
-    ~of_yojson:Kube_job.Status.of_yojson
+let get_job_statuses t ids =
+  get_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
+    ~of_yojson:Job.Status.of_yojson
 
 let get_json_keys ~uri ~parsers json =
   begin match json with
@@ -99,9 +101,9 @@ let get_json_keys ~uri ~parsers json =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_kube_job_descriptions t ids =
+let get_job_descriptions t ids =
   let path = "job/describe" in
-  get_kube_job_jsons t ~path ~ids
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   let get_string name =
@@ -126,9 +128,9 @@ let get_kube_job_descriptions t ids =
         (String.concat ~sep:", " other)
   )
 
-let get_kube_job_logs t ids =
+let get_job_logs t ids =
   let path = "job/logs" in
-  get_kube_job_jsons t ~path ~ids
+  get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
   let get_string name =
@@ -153,17 +155,17 @@ let get_kube_job_logs t ids =
         (String.concat ~sep:", " other)
   )
 
-let kill_kube_jobs {base_url} ids =
+let kill_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok resp ~body ~meth:`Get ~uri
 
 let get_server_status_string {base_url} =
   let uri = Uri.with_path (Uri.of_string base_url) "status" in
   do_get uri
   >>= fun (resp, body) ->
-  response_is_ok resp ~meth:`Get ~uri
+  response_is_ok resp ~body ~meth:`Get ~uri
   >>= fun () ->
   return body
 
@@ -203,12 +205,13 @@ module Error = struct
         (Uri.to_string uri)
         problem
         (Yojson.Safe.pretty_to_string json)
-    | `Response (meth, uri, resp) ->
-      sprintf "Client.Response: URI: %s, Meth: %s, Resp: %s"
+    | `Response (meth, uri, resp, body) ->
+      sprintf "Client.Response: URI: %s, Meth: %s, Resp: %s, Body: %s"
         (Uri.to_string uri)
         begin match meth with
         | `Post -> "POST"
         | `Get -> "GET"
         end
         (Cohttp.Response.sexp_of_t resp |> Sexplib.Sexp.to_string_hum)
+        body
 end

@@ -35,46 +35,10 @@ module Specification : sig
   } [@@deriving yojson, show, make]
 end
 
-module Status : sig
-  type t = [
-    | `Error of string
-    | `Finished of float * [ `Failed | `Succeeded | `Killed ]
-    | `Started of float
-    | `Submitted
-  ] [@@deriving yojson, show]
-
-end
-
-type t = {
-  id: string;
-  specification : Specification.t;
-  mutable status : Status.t;
-  mutable update_errors : string list;
-  mutable start_errors : string list;
-}
-
-val fresh : Specification.t -> t
-
-val show : t -> Ppx_deriving_runtime.string
-
-val id : t -> string
-
-val status : t -> Status.t
-
-val save :
-  Storage.t ->
-  t ->
-  (unit,
-   [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
-
-val get :
-  Storage.t ->
-  string ->
-  (t, [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
-
 val start :
   log:Log.t ->
-  t ->
+  id:string ->
+  specification:Specification.t ->
   (unit,
    [> `IO of [> `Write_file_exn of Pvem_lwt_unix.IO.path * exn ]
    | `Shell_command of Hyper_shell.Error.t
@@ -83,7 +47,8 @@ val start :
 val describe :
   storage:Storage.t ->
   log:Log.t ->
-  t ->
+  id:string ->
+  save_path:Storage.key ->
   ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
@@ -91,7 +56,7 @@ val describe :
 
 val kill :
   log:Log.t ->
-  t ->
+  id: string ->
   (unit,
    [> `Shell_command of Hyper_shell.Error.t
    | `Log of Log.Error.t ]) Deferred_result.t
@@ -99,7 +64,8 @@ val kill :
 val get_logs:
   storage:Storage.t ->
   log:Log.t ->
-  t ->
+  id: string ->
+  save_path: Storage.key ->
   ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
@@ -107,7 +73,7 @@ val get_logs:
 
 val get_status_json :
   log:Log.t ->
-  t ->
+  id: string ->
   (string,
    [> `Shell_command of Hyper_shell.Error.t
    | `Log of Log.Error.t ]) Deferred_result.t

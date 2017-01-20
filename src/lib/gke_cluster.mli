@@ -6,23 +6,11 @@ type t = private {
   min_nodes : int;
   max_nodes : int;
   machine_type : string;
-}
+} [@@deriving yojson, show]
 
 val make :
   zone:string ->
   ?min_nodes:int -> max_nodes:int -> ?machine_type:string -> string -> t
-
-val save :
-  storage:Storage.t ->
-  t ->
-  (unit,
-   [> `Storage of [> Storage.Error.common ] ]) Deferred_result.t
-
-val get :
-  Storage.t ->
-  (t,
-   [>`Storage of [> Storage.Error.common ] ])
-    Deferred_result.t
 
 val max_started_jobs: t -> int
 (** The maximum number of jobs that Coclobas will attempt to run

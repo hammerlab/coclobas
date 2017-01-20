@@ -14,7 +14,19 @@ let to_string =
     sprintf "Reading file %S: %s" path (exn e)
   | `System _ as e ->
     Pvem_lwt_unix.System.error_to_string e
-  | `Job e -> Kube_job.Error.to_string e
+  | `Job (`Kube_json_parsing _ as e) ->
+    Kube_job.Error.to_string e
+  | `Job (`Docker_inspect_json_parsing _ as e) ->
+    Local_docker_job.Error.to_string e
   | `Start_server (`Exn e) ->
     sprintf "Starting Cohttp server: %s" (exn e)
   | `Client err -> Client.Error.to_string err
+  | `Invalid_job_submission (`Wrong_backend (job, clu)) ->
+    let disp =
+      function
+      | `Kube -> "Kubernetes"
+      | `GCloud_kubernetes -> "GCloud-kubernetes"
+      | `Local_docker -> "Local-Docker" in
+    sprintf "Invalid job submission: backend mismatch: \
+             job wants %s, cluster is %s"
+      (disp job) (disp clu)
