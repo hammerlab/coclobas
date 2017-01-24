@@ -65,18 +65,26 @@ let kubernetes_program ~base_url ~image ?(volume_mounts = []) p =
 let extra_mount_container_side = "/coclobas-ketrew-plugin-playground"
 let script_filename = "program-monitored-script"
 
-let local_docker_program ~base_url ~image ?(volume_mounts = []) p =
-  let playground_path =
-    let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
-    sprintf "/tmp/%s.sh" id in
+let local_docker_program ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
+  let tmp_dir =
+    match tmp_dir with
+    | Some d -> d
+    | None -> try Sys.getenv "TMPDIR" with _ -> "/tmp/coclolocal"
+  in
+  let playground_dir =
+    let id = Uuidm.(v5 (create `V4) "coclojob" |> to_string ~upper:false) in
+    sprintf "%s-playground" id in
   let extra_mount =
-    `Local (playground_path, extra_mount_container_side) in
+    `Local (tmp_dir, extra_mount_container_side) in
+  let playground_path = tmp_dir // playground_dir in
   create ~base_url ~program:p ~playground_path
     (Coclobas.Job.Specification.local_docker
        Coclobas.Local_docker_job.Specification.(
          make ~image
            ~volume_mounts:(extra_mount :: volume_mounts)
-           ["sh"; sprintf "%s/%s" extra_mount_container_side script_filename]
+           ["sh";
+            extra_mount_container_side // playground_dir // script_filename]
+            (* sprintf "%s/%s" extra_mount_container_side script_filename] *)
        ))
 
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
@@ -124,7 +132,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                 Ketrew_pure.Monitored_script.(
                   create prog
                     ~playground:(Ketrew_pure.Path.absolute_directory_exn
-                                   extra_mount_container_side)
+                                   playground)
                   |> to_string
                 ) in
               System.ensure_directory_path playground
