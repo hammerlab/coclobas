@@ -84,7 +84,6 @@ let local_docker_program ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
            ~volume_mounts:(extra_mount :: volume_mounts)
            ["sh";
             extra_mount_container_side // playground_dir // script_filename]
-            (* sprintf "%s/%s" extra_mount_container_side script_filename] *)
        ))
 
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
