@@ -195,7 +195,7 @@ let kill ~log ~id =
   command_must_succeed ~log ~id cmd
 
 let get_status_json ~log ~id =
-  let cmd = sprintf "kubectl get pod %s -o=json" id in
+  let cmd = sprintf "kubectl get pod -a %s -o=json" id in
   command_must_succeed_with_output ~log ~id cmd
   >>= fun (out, _) ->
   return out
