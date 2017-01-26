@@ -133,6 +133,17 @@ workflow_node without_product ~name:"Coclobas test of local-docker jobs"
   )
 ```
 
+### Querying the Server
+
+All the “job inspection” features are available through the Ketrew UIs as
+“backend queries.”
+
+One can also directly query the server through the command line,
+see `coclobas client --help`, for example:
+
+    coclobas client --server http://127.0.0.1:8999 list
+
+
 Contact
 -------
 
