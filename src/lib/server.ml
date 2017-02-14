@@ -196,29 +196,53 @@ let rec loop:
     let and_sleep =
       Option.value and_sleep ~default:t.configuration.Configuration.min_sleep in
     let now () = Unix.gettimeofday () in
-    let `Started started_jobs, todo =
+    let `Started_count started_jobs, todo =
       let currently_started =
         List.fold t.jobs ~init:0 ~f:(fun c j ->
             match Job.status j with
             | `Started _ -> c + 1
             | _ -> c) in
       let max_started = Cluster.max_started_jobs t.cluster in
-      List.fold t.jobs ~init:(`Started currently_started, [])
-        ~f:(fun (`Started started, todo) j ->
+      let reupdate_wait j =
+        match Job.latest_error j with
+        | None -> 30.
+        | Some t ->
+          (* let time_ago = now () -. t in *)
+          let errors =
+            (Job.start_errors j |> List.length) + 
+            (Job.update_errors j |> List.length) in 
+          (float errors *. 30.)
+      in
+      let should_try_to_start j =
+        match Job.latest_error j with
+        | None -> true
+        | Some t ->
+          now () > t +. (reupdate_wait j) in
+      List.fold t.jobs ~init:(`Started_count currently_started, [])
+        ~f:(fun (`Started_count started, todo) j ->
             match Job.status j with
+            (* Remove finished jobs: *)
             | `Error _
             | `Finished _ ->
-              (`Started started, `Remove j :: todo)
+              (`Started_count started, `Remove j :: todo)
+            (* Kill Jobs to kill: *)
             | other when List.mem ~set:t.jobs_to_kill (Job.id j) ->
-              (`Started started, `Kill j :: todo)
+              (`Started_count started, `Kill j :: todo)
+            (* Do not submit too many jobs: *)
             | `Submitted when started >= max_started ->
-              (`Started started, todo)
+              (`Started_count started, todo)
+            (* Do not retry to start too often: *)
+            | `Submitted when not (should_try_to_start j) ->
+              (`Started_count started, todo)
+            (* Start submitted jobs (< max_started & not backcing off) *)
             | `Submitted ->
-              (`Started (started + 1), `Start j :: todo)
-            | `Started time when time +. 30. > now () ->
-              (`Started started, todo)
+              (`Started_count (started + 1), `Start j :: todo)
+            (* Do not check again on jobs checked too recently: *)
+            | `Started time when time +. reupdate_wait j > now () ->
+              (`Started_count started, todo)
+            (* Check on jobs that are running: *)
             | `Started _ ->
-              (`Started started, `Update j :: todo)
+              (`Started_count started, `Update j :: todo)
           )
     in
     t.jobs_to_kill <- [];
@@ -242,10 +266,11 @@ let rec loop:
           Job.kill ~log:t.log j
           >>< function
           | `Ok () ->
-            Job.set_status j @@ `Finished (now (), `Killed);
+            Job.set_status ~from_error:false j (`Finished (now (), `Killed));
             return ()
           | `Error e ->
-            Job.set_status j @@ `Error ("Killing failed: " ^ Error.to_string e);
+            Job.set_status ~from_error:true j
+              (`Error ("Killing failed: " ^ Error.to_string e));
             return ()
         end
         >>= fun () ->
@@ -254,21 +279,21 @@ let rec loop:
         Job.start ~log:t.log j
         >>< begin function
         | `Ok () -> 
-          Job.set_status j @@ `Started (now ());
+          Job.set_status ~from_error:false j @@ `Started (now ());
           Job.save t.storage j
           >>= fun () ->
           return ()
         | `Error e ->
           begin match Job.start_errors j with
           | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-            Job.set_start_errors j @@ Error.to_string e :: l;
+            Job.set_start_errors ~time:(now ()) j (Error.to_string e :: l);
             Job.save t.storage j
           | more ->
-            Job.set_status j @@
-              `Error (sprintf
-                        "Starting failed %d times: [ %s ]"
-                        (t.configuration.Configuration.max_update_errors + 1)
-                        (List.dedup more |> String.concat ~sep:" -- "));
+            Job.set_status ~from_error:true j @@
+            `Error (sprintf
+                      "Starting failed %d times: [ %s ]"
+                      (t.configuration.Configuration.max_update_errors + 1)
+                      (List.dedup more |> String.concat ~sep:" -- "));
             Job.save t.storage j
           end
         end
@@ -278,12 +303,12 @@ let rec loop:
           >>= fun stat ->
           begin match stat with
           | `Running ->
-            Job.set_status j @@  `Started (now ());
+            Job.set_status ~from_error:false j @@  `Started (now ());
             Job.save t.storage j
             >>= fun () ->
             return ()
           | (`Failed | `Succeeded as phase) ->
-            Job.set_status j @@ `Finished (now (), phase);
+            Job.set_status ~from_error:false j @@ `Finished (now (), phase);
             Job.save t.storage j
             >>= fun () ->
             return ()
@@ -293,15 +318,15 @@ let rec loop:
         | `Error e ->
           begin match Job.update_errors j with
           | l when List.length l <= t.configuration.Configuration.max_update_errors ->
-            Job.set_status j @@ `Started (now ());
-            Job.set_update_errors j @@ Error.to_string e :: l;
+            Job.set_status ~from_error:true j @@ `Started (now ());
+            Job.set_update_errors j ~time:(now ()) (Error.to_string e :: l);
             Job.save t.storage j
           | more ->
-            Job.set_status j @@ 
-              `Error (sprintf
-                        "Updating failed %d times: [ %s ]"
-                        (t.configuration.Configuration.max_update_errors + 1)
-                        (List.dedup more |> String.concat ~sep:" -- "));
+            Job.set_status ~from_error:true j @@ 
+            `Error (sprintf
+                      "Updating failed %d times: [ %s ]"
+                      (t.configuration.Configuration.max_update_errors + 1)
+                      (List.dedup more |> String.concat ~sep:" -- "));
             Job.save t.storage j
           end
         end
