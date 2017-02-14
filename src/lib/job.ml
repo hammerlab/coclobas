@@ -28,18 +28,27 @@ type t = {
   mutable status: Status.t [@default `Submitted];
   mutable update_errors : string list;
   mutable start_errors : string list;
+  mutable latest_error: float option;
 }
 [@@deriving yojson, show, make]
 
 let id t = t.id
 let status t = t.status
-let set_status t s = t.status <- s
+let set_status t ~from_error s =
+  (if not from_error then t.latest_error <- None);
+  t.status <- s
 
 let start_errors t = t.start_errors
-let set_start_errors t l = t.start_errors <- l
+let set_start_errors t ~time l =
+  t.latest_error <- Some time;
+  t.start_errors <- l
 
 let update_errors t = t.update_errors
-let set_update_errors t l = t.update_errors <- l
+let set_update_errors t ~time l =
+  t.latest_error <- Some time;
+  t.update_errors <- l
+
+let latest_error t = t.latest_error
 
 let fresh spec =
   let id = Uuidm.(v5 (create `V4) "coclojobs" |> to_string ~upper:false) in
@@ -73,7 +82,8 @@ let get st job_id =
     ~parse:Status.of_yojson
   >>= fun status ->
   return {id = job_id; specification; status;
-          update_errors = []; start_errors = []}
+          update_errors = []; start_errors = [];
+          latest_error = None}
 
 let kind t = Specification.kind t.specification
 

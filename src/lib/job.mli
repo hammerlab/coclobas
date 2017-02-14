@@ -22,22 +22,26 @@ type t
 val show : t -> string
  
 val make :
-  id:string ->
-  ?status:Status.t ->
-  ?update_errors:string list ->
-  ?start_errors:string list -> Specification.t -> t
+  id: string ->
+  ?status: Status.t ->
+  ?update_errors: string list ->
+  ?start_errors: string list ->
+  ?latest_error: float ->
+  Specification.t -> t
 
 val id : t -> string
 val status : t -> Status.t
 val fresh : Specification.t -> t
 
-val set_status : t -> Status.t -> unit
+val set_status : t -> from_error: bool -> Status.t -> unit
 
 val start_errors : t -> string list
-val set_start_errors : t -> string list -> unit
+val set_start_errors : t -> time: float -> string list -> unit
 
 val update_errors : t -> string list
-val set_update_errors : t -> string list -> unit
+val set_update_errors : t -> time: float -> string list -> unit
+
+val latest_error: t -> float option
 
 val save :
   Storage.t ->

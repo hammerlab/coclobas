@@ -7,6 +7,7 @@ module Configuration : sig
     val max_sleep : float
     val max_update_errors : int
     val concurrent_steps : int
+    val backoff_factor : float
   end
 
   type t = {
@@ -14,6 +15,7 @@ module Configuration : sig
     max_sleep: float [@default Default.max_sleep];
     max_update_errors: int [@default Default.max_update_errors];
     concurrent_steps: int [@default Default.concurrent_steps];
+    backoff_factor : float [@default Default.backoff_factor];
   } [@@deriving make, yojson, show]
 
   val save :
