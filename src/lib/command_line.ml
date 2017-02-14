@@ -200,9 +200,10 @@ let main () =
       (`Max_update_errors max_update_errors)
       (`Concurrent_steps concurrent_steps)
       (`Min_sleep min_sleep)
-      (`Max_sleep max_sleep) ->
+      (`Max_sleep max_sleep)
+      (`Backoff_factor backoff_factor) ->
       Server.Configuration.make ()
-        ~min_sleep ~max_sleep ~max_update_errors
+        ~min_sleep ~max_sleep ~max_update_errors ~backoff_factor
     end
     $ begin
       pure (fun s -> `Max_update_errors s)
@@ -232,6 +233,14 @@ let main () =
              info ["min-sleep"]
                ~doc:"The maximal time to wait before reentering the \
                      “update loop.”")
+    end
+    $ begin
+      pure (fun s -> `Backoff_factor s)
+      $ Arg.(value & opt float Server.Configuration.Default.backoff_factor &
+             info ["backoff-factor"]
+               ~doc:"The factor used for exponential backoff: \
+                     (factor * nth-error) in seconds, see also discussion \
+                     at pull-request #96.")
     end
   in
   let configure =

@@ -9,6 +9,7 @@ module Configuration = struct
     let max_sleep = 180.
     let max_update_errors = 10
     let concurrent_steps = 5
+    let backoff_factor = 20.
   end
 
   type t = {
@@ -16,6 +17,7 @@ module Configuration = struct
     max_sleep: float [@default Default.max_sleep];
     max_update_errors: int [@default Default.max_update_errors];
     concurrent_steps: int [@default Default.concurrent_steps];
+    backoff_factor : float [@default Default.backoff_factor];
   } [@@deriving make, yojson, show]
 
   let path = ["server"; "configuration.json"]
@@ -205,13 +207,12 @@ let rec loop:
       let max_started = Cluster.max_started_jobs t.cluster in
       let reupdate_wait j =
         match Job.latest_error j with
-        | None -> 30.
-        | Some t ->
-          (* let time_ago = now () -. t in *)
+        | None -> 30. (* Latest thing was not an error. *)
+        | Some _ ->
           let errors =
             (Job.start_errors j |> List.length) + 
             (Job.update_errors j |> List.length) in 
-          (float errors *. 30.)
+          (float errors *. t.configuration.Configuration.backoff_factor)
       in
       let should_try_to_start j =
         match Job.latest_error j with
