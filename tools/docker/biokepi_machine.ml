@@ -63,6 +63,41 @@ let volume_mounts =
 
 let name = "Coclomachine"
 
+let run_program_with_coclo p =
+  let open Coclobas in
+  let open Coclobas_ketrew_backend.Plugin in
+  let base_url = "http://127.0.0.1:8082" in
+  let script_path = "/coclo-kube/mount/script" in
+  let script =
+    Kube_job.Specification.File_contents_mount.make
+      ~path:script_path
+      Ketrew_pure.Monitored_script.(
+        create p
+          ~playground:(Ketrew_pure.Path.absolute_directory_exn
+                         "/tmp/playground")
+        |> to_string
+      ) in
+  let get_int_option envvar ~f =
+    match env_exn envvar |> Int.of_string with
+    | Some i -> Some (f i)
+    | None ->
+      ksprintf failwith "Variable %S should be an integer not %S"
+        envvar (env_exn envvar)
+    | exception _ -> None in
+  let memory = get_int_option "KUBE_JOB_MEMORY" ~f:(fun gb -> `GB gb) in
+  let cpus = get_int_option "KUBE_JOB_CPUS" ~f:(fun c -> c)  in
+  let spec =
+    Kube_job.Specification.make
+      ?memory ?cpus
+      ~image
+      ~volume_mounts:(`Constant script :: volume_mounts)
+      ["bash"; script_path]
+  in
+  let created =
+    Run_parameters.make_created ~client:(Client.make base_url)
+      ~program:p spec in
+  `Long_running (name, `Created created |> Run_parameters.serialize)
+
 let biokepi_machine =
   let host = Ketrew.EDSL.Host.parse "/tmp/KT-coclomachine/" in
   let max_processors = 7 in
@@ -81,10 +116,7 @@ let biokepi_machine =
     | `On_server_node ->
       daemonize ~host ~using:`Python_daemon (with_umask p)
     | `Submit_to_coclobas ->
-      Coclobas_ketrew_backend.Plugin.run_program
-        ~base_url:"http://127.0.0.1:8082"
-        ~image
-        ~volume_mounts
+      run_program_with_coclo 
         Program.(
           (* sh "sudo mkdir -m 777 -p /cloco-kube/playground" && *)
           sh "echo User" && sh "whoami" &&
