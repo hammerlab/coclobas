@@ -74,9 +74,9 @@ Example 2: Local/Docker mode:
 
 ### Start The Server
 
-Now that Coclobas has a configuration (this information is store in the
-`--root`, so you can have many possible Coclobas configured, all in different
-directories), you'll want to start it:
+Now that Coclobas has a configuration (this information is stored in the
+`--root`, so you can have many possible Coclobas servers configured, all in
+different directories), you'll want to start it:
 
 
     coclobas start-server --root $root --port 8999
