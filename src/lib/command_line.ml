@@ -230,7 +230,7 @@ let main () =
     $ begin
       pure (fun s -> `Max_sleep s)
       $ Arg.(value & opt float Server.Configuration.Default.max_sleep &
-             info ["min-sleep"]
+             info ["max-sleep"]
                ~doc:"The maximal time to wait before reentering the \
                      “update loop.”")
     end
