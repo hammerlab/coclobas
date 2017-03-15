@@ -2,7 +2,7 @@ open Nonstd
 open Solvuu_build.Std
 
 let project_name = "coclobas"
-let version = "0.0.1-dev"
+let version = "0.0.1"
 
 let build_tests =
   try Sys.getenv "WITH_TESTS" = "true" with _ -> false
