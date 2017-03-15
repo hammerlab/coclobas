@@ -27,7 +27,6 @@ let lib : Project.item =
     ~findlib_deps
     ~dir:"src/lib"
     ~style:(`Pack project_name)
-    ~pkg:project_name
 
 let ketrew_backend : Project.item option =
   let item =
@@ -37,7 +36,7 @@ let ketrew_backend : Project.item option =
       ~dir:"src/ketrew_backend"
       ~style:(`Pack (project_name ^ "_ketrew_backend"))
       ~internal_deps:[lib]
-      ~pkg:(project_name ^ ".ketrew_backend")
+      ~install:(`Findlib (project_name ^ ".ketrew_backend"))
   in
   if Project.dep_opts_sat item ["ketrew"]
   then Some item
@@ -55,6 +54,7 @@ let test : Project.item option =
       Project.app (project_name ^ "-test")
         ~thread:()
         ~file:"src/test/client_server.ml"
+        ~install:`No
         ~internal_deps:[lib]
     ) else None
 
@@ -75,13 +75,14 @@ let test_ketrew_workflow : Project.item option =
     Some (
       Project.app (project_name ^ "-ketrew-workflow-test")
         ~thread:()
+        ~install:`No
         ~file:"src/test/workflow_test.ml"
         ~internal_deps:[lib; kb]
     )
   | _, _ -> None
 
 let ocamlinit_postfix = [
-  sprintf "open %s" (String.capitalize project_name);
+  sprintf "open %s" (String.capitalize_ascii project_name);
 ]
 
 let () =

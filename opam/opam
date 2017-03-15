@@ -17,7 +17,7 @@ build: [
 depends: [
   "ocamlfind" {build}
   "ocamlbuild" {build}
-  "solvuu-build" {build}
+  "solvuu-build" {build & >= "0.3.0"}
   "nonstd"
   "sosa"
   "pvem_lwt_unix"
@@ -35,5 +35,5 @@ depopts: [
 ]
 
 available: [
-  ocaml-version >= "4.02.3"
+  ocaml-version >= "4.03.0"
 ]
