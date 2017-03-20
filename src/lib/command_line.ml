@@ -150,7 +150,11 @@ let client_term =
 
 let main () =
   let open Cmdliner in
-  let version = "0.0.0" in
+  let version =
+    Meta.version
+    ^ Option.(
+        (Meta.git_commit >>= fun g -> String.sub g ~index:0 ~length:8)
+        |> value_map ~default:"" ~f:(sprintf "+%s"))  in
   let cluster_term =
     let open Term in
     pure begin fun
