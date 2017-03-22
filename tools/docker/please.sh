@@ -45,6 +45,9 @@ if [ "$CLUSTER_MAX_NODES" = "" ] ; then
     echo "Error: \$CLUSTER_MAX_NODES is not set"
     exit 3
 fi
+if [ "$CLUSTER_MACHINE_TYPE" = "" ] ; then
+    CLUSTER_MACHINE_TYPE="n1-highmem-8"
+fi
 if [ "$NFS_MOUNTS" = "" ] ; then
     echo "Warning: \$MOUNT_NFS is not set, your cluster is going to be useless"
 fi
@@ -89,7 +92,8 @@ start_coclobas () {
     $ccb config --root $root \
          --cluster-name $CLUSTER_NAME \
          --cluster-zone $GCLOUD_ZONE \
-         --max-nodes $CLUSTER_MAX_NODES
+         --max-nodes $CLUSTER_MAX_NODES \
+         --machine-type $CLUSTER_MACHINE_TYPE
     export COCLOBAS_DEBUG_SECTIONS="/server/loop"
     $ccb start-server --root $root --port 8082
 }
