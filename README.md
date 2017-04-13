@@ -27,7 +27,7 @@ deployment convenience).
 Build
 -----
 
-Coclobas 0.0.0 is on `opam` (supports only GKE/Kubernetes).
+Coclobas 0.0.1 is in `opam` (supports GKE/Kubernetes and local-docker modes).
 
 Coclobas depends on `solvuu-build`, `sosa`, `nonstd`, and optionally `ketrew`.
 
