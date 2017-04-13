@@ -55,6 +55,7 @@ let generate_meta_data () =
 let lib : Project.item =
   Project.lib project_name
     ~thread:()
+    ~bin_annot:()
     ~findlib_deps
     ~ml_files:(`Add [Filename.basename meta_dot_ml])
     ~dir:"src/lib"
@@ -64,6 +65,7 @@ let ketrew_backend : Project.item option =
   let item =
     Project.lib (project_name ^ "_ketrew_backend")
       ~thread:()
+      ~bin_annot:()
       ~findlib_deps:("ketrew" :: findlib_deps)
       ~dir:"src/ketrew_backend"
       ~style:(`Pack (project_name ^ "_ketrew_backend"))
@@ -80,14 +82,20 @@ let app : Project.item =
     ~file:"src/app/main.ml"
     ~internal_deps:[lib]
 
+let test_findlib_deps = [
+  "ppx_deriving_cmdliner"
+]
+
 let test : Project.item option =
   if build_tests
   then Some (
       Project.app (project_name ^ "-test")
         ~thread:()
+        ~bin_annot:()
         ~file:"src/test/client_server.ml"
         ~install:`No
         ~internal_deps:[lib]
+        ~findlib_deps:test_findlib_deps
     ) else None
 
 let linked_ketrew : Project.item option =
@@ -96,6 +104,7 @@ let linked_ketrew : Project.item option =
     Some (
       Project.app (project_name ^ "-ketrew")
         ~thread:()
+        ~bin_annot:()
         ~file:"src/test/cocloketrew.ml"
         ~internal_deps:[lib; kb]
     )
@@ -107,9 +116,11 @@ let test_ketrew_workflow : Project.item option =
     Some (
       Project.app (project_name ^ "-ketrew-workflow-test")
         ~thread:()
+        ~bin_annot:()
         ~install:`No
         ~file:"src/test/workflow_test.ml"
         ~internal_deps:[lib; kb]
+        ~findlib_deps:test_findlib_deps
     )
   | _, _ -> None
 

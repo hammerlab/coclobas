@@ -147,6 +147,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                   | `System _ as e -> System.error_to_string e) in
               fail (`Coclo_plugin (`Preparing_script msg))
             end
+          | `Aws_batch, _, _ ->
+            return ()
           | `Local_docker, _, None (* No program means, no need for playground *)
           | `Kube, _, _ -> return ()
           end
@@ -250,6 +252,17 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           (List.map dock.volume_mounts ~f:(function
              | `Local (f, t) -> "Local", textf "%s:%s" f t)
            |> description_list);
+        ]
+      | Aws_batch aws ->
+        let open Coclobas.Aws_batch_job.Specification in
+        description_list [
+          "Image", uri aws.image;
+          "Command", command (String.concat ~sep:" " aws.command);
+          "Memory", (match aws.memory with `MB x -> textf "%d MB" x);
+          "CPUs", textf "%d" aws.cpus;
+          "Privileged", textf "%b" aws.priviledged;
+          "Job-role", option aws.job_role ~f:(function
+            | `Arn s -> text s);
         ]
     in
     function

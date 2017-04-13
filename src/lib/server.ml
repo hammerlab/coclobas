@@ -167,6 +167,7 @@ let incoming_job t string =
   begin match Job.Specification.kind spec, Cluster.kind t.cluster with
   | (`Kube, `GCloud_kubernetes) -> return ()
   | (`Local_docker, `Local_docker) -> return ()
+  | (`Aws_batch, `Aws_batch_queue) -> return ()
   | tuple -> (* we could run local-docker jobs with a kube cluster but that would
             mess with the maximum number of jobs to submit *)
     fail (`Invalid_job_submission (`Wrong_backend tuple))
@@ -277,7 +278,7 @@ let rec loop:
         >>= fun () ->
         Job.save t.storage j
       | `Start j ->
-        Job.start ~log:t.log j
+        Job.start ~log:t.log j ~cluster:t.cluster
         >>< begin function
         | `Ok () -> 
           Job.set_status ~from_error:false j @@ `Started (now ());
