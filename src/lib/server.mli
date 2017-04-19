@@ -44,5 +44,6 @@ val create :
 val start: t ->
   (unit,
    [> `Shell_command of Hyper_shell.Error.t
+   | `Aws_batch_queue of [> `Check_valid ] * string * string
    | `Log of Log.Error.t
    | `Storage of [> Storage.Error.common ] ]) Deferred_result.t

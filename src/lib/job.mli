@@ -11,10 +11,12 @@ module Specification : sig
   type t = private
     | Kube of Kube_job.Specification.t
     | Local_docker of Local_docker_job.Specification.t
+    | Aws_batch of Aws_batch_job.Specification.t
   [@@deriving yojson,show ] 
-  val kind: t -> [> `Kube | `Local_docker ]
+  val kind: t -> [ `Kube | `Local_docker | `Aws_batch ]
   val kubernetes: Kube_job.Specification.t -> t
   val local_docker: Local_docker_job.Specification.t -> t
+  val aws_batch: Aws_batch_job.Specification.t -> t
 end
 
 type t
@@ -23,10 +25,10 @@ val show : t -> string
  
 val make :
   id: string ->
-  ?status: Status.t ->
-  ?update_errors: string list ->
-  ?start_errors: string list ->
-  ?latest_error: float ->
+  (* ?status: Status.t -> *)
+  (* ?update_errors: string list -> *)
+  (* ?start_errors: string list -> *)
+  (* ?latest_error: float -> *)
   Specification.t -> t
 
 val id : t -> string
@@ -62,6 +64,7 @@ val get_logs :
    string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
+   | `Job of [> `Missing_aws_state of string ]
    | `Storage of [> Storage.Error.common ] ])
     Internal_pervasives.Deferred_result.t
 
@@ -73,20 +76,25 @@ val describe :
    string,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
+   | `Job of [> `Missing_aws_state of string ]
    | `Storage of [> Storage.Error.common ] ])
     Internal_pervasives.Deferred_result.t
 
 val kill :
   log:Log.t ->
   t ->
-  (unit, [> `Log of Log.Error.t | `Shell_command of Hyper_shell.Error.t ])
+  (unit, [> `Log of Log.Error.t
+         | `Job of [> `Missing_aws_state of string ]
+         | `Shell_command of Hyper_shell.Error.t ])
     Internal_pervasives.Deferred_result.t
 
 val start :
   log:Log.t ->
   t ->
+  cluster: Cluster.t ->
   (unit,
    [> `IO of [> `Write_file_exn of Pvem_lwt_unix.IO.path * exn ]
+   | `Aws_batch_job of Aws_batch_job.Error.start
    | `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t ])
     Internal_pervasives.Deferred_result.t
@@ -101,5 +109,7 @@ val get_update :
         | `Kube_json_parsing of
              string * [> `Exn of exn | `String of string ] ]
    | `Log of Log.Error.t
+   | `Aws_batch_job of Aws_batch_job.Error.status
+   | `Job of [> `Missing_aws_state of string ]
    | `Shell_command of Hyper_shell.Error.t ])
     Internal_pervasives.Deferred_result.t

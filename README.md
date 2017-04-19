@@ -3,16 +3,17 @@ Coclobas
 
 Coclobas is a scheduler for HPC-like jobs accessible through HTTP.
 
-It can be setup with two kinds of configurations:
+It can be setup with three kinds of configurations:
 
 - Using Kubernetes and the *Google Container Engine*,
   i.e. using a Kubernetes “eleastic” cluster setup with `gcloud` and submitting
   jobs as Kubernetes “pods”.
 - Using the server's machine as a one-node cluster and submitting jobs as docker
   containers given a maximal number of jobs.
+- *(Experimental)* using an AWS-Batch job queue with Docker containers.
 
-Coclobas provides logging facilities (e.g. maintaining logs long after Kubernetes
-disposes of them).
+Coclobas provides logging facilities (e.g. maintaining logs long after
+Kubernetes disposes of them).
 
 Finally, it makes it easy to submit arbitrary scripts to be run in any Docker
 container, which makes it easier than using raw Kubernetes or Docker to submit
@@ -28,8 +29,6 @@ Build
 -----
 
 Coclobas 0.0.1 is in `opam` (supports GKE/Kubernetes and local-docker modes).
-
-Coclobas depends on `solvuu-build`, `sosa`, `nonstd`, and optionally `ketrew`.
 
 You can just use Opam to get things going quickly:
 
@@ -48,6 +47,8 @@ must be installed (and authenticated) with the Coclobas server.
 In Local/Docker mode, `docker` must be present (and accessible to the Coclobas
 server's user).
 
+In AWS-Batch mode, the `aws` command line application must be present (and
+it must be recent enough to have `aws batch` enabled).
 
 Using Coclobas
 --------------
@@ -71,6 +72,15 @@ Example 2: Local/Docker mode:
     coclobas config --root $root \
              --cluster-kind local-doker \
              --max-nodes 5
+
+Example 3: AWS-Batch mode:
+
+    coclobas config --root $root \
+        --cluster-kind aws-batch \
+        --aws-queue awsuser-jq01 \
+        --min-sleep 4 \
+        --max-update-errors 4 \
+        --max-nodes 4
 
 ### Start The Server
 

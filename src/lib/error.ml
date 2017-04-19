@@ -18,15 +18,24 @@ let to_string =
     Kube_job.Error.to_string e
   | `Job (`Docker_inspect_json_parsing _ as e) ->
     Local_docker_job.Error.to_string e
+  | `Job (`Missing_aws_state id) ->
+    sprintf "Job %s is missing AWS-Batch data" id
   | `Start_server (`Exn e) ->
     sprintf "Starting Cohttp server: %s" (exn e)
   | `Client err -> Client.Error.to_string err
   | `Invalid_job_submission (`Wrong_backend (job, clu)) ->
     let disp =
       function
+      | `Aws_batch_queue -> "AWS-Batch-Queue"
+      | `Aws_batch -> "AWS-Batch-Job"
       | `Kube -> "Kubernetes"
       | `GCloud_kubernetes -> "GCloud-kubernetes"
       | `Local_docker -> "Local-Docker" in
     sprintf "Invalid job submission: backend mismatch: \
              job wants %s, cluster is %s"
       (disp job) (disp clu)
+   | `Aws_batch_queue (`Check_valid, out, err) ->
+     sprintf "Invalid AWS job-queue: %S (stderr: %S)" out err
+   | `Aws_batch_job ((`Start _ | `Status _) as ae) ->
+     sprintf "AWS-Batch-Job error: %s" (Aws_batch_job.Error.show ae)
+

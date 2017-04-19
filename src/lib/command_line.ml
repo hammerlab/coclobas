@@ -23,10 +23,13 @@ let configure ?database root ~cluster ~server =
   >>= fun () ->
   Server.Configuration.save ~storage server
 
-let cluster ~root action =
+let get_cluster ~root =
   get_storage root
   >>= fun storage ->
   Cluster.get storage
+
+let cluster ~root action =
+  get_cluster ~root
   >>= fun cluster ->
   let log = log ~root in
   begin match action with
@@ -161,6 +164,7 @@ let main () =
       cluster_kind
       (`GCloud_kube_name gke_name)
       (`GCloud_zone gzone)
+      (`Aws_queue_name queue_name)
       (`Max_nodes max_nodes)
       (`Machine_type machine_type) ->
       let i_need opt msg =
@@ -178,16 +182,26 @@ let main () =
         |> Cluster.gke
       | `Local_docker ->
         Cluster.local_docker ~max_jobs:max_nodes
+      | `Aws_batch_queue ->
+        Aws_batch_queue.make ~max_jobs:max_nodes
+          ~queue_name:(i_need queue_name "A AWS-Batch queue name is required \
+                                          for AWS-Batch-Queue clusters.")
+        |> Cluster.aws_batch_queue
     end
     $ Arg.(
         required
-        & opt (enum ["gke", `GKE; "local-docker", `Local_docker] |> some) None
+        & opt (enum ["gke", `GKE;
+                     "local-docker", `Local_docker;
+                     "aws-batch-queue", `Aws_batch_queue;
+                    ] |> some) None
         & info ["cluster-kind"]
           ~doc:"Kind of cluster." ~docv:"KIND")
     $ optional_string "gke-cluster-name" (fun s -> `GCloud_kube_name s)
       ~doc:"Name of the GCloud-Kubernetes cluster."
     $ optional_string "gcloud-zone" (fun s -> `GCloud_zone s)
       ~doc:"Zone of the GCloud-Kubernetes cluster."
+    $ optional_string "aws-queue-name" (fun s -> `Aws_queue_name s)
+      ~doc:"The name (or ARN) of the AWS-Batch queue."
     $ begin
       pure (fun s -> `Max_nodes s)
       $ Arg.(
