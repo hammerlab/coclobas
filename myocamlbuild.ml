@@ -60,19 +60,27 @@ let lib : Project.item =
     ~dir:"src/lib"
     ~style:(`Pack project_name)
 
-let ketrew_backend : Project.item option =
-  let item =
-    Project.lib (project_name ^ "_ketrew_backend")
-      ~thread:()
-      ~findlib_deps:("ketrew" :: findlib_deps)
-      ~dir:"src/ketrew_backend"
-      ~style:(`Pack (project_name ^ "_ketrew_backend"))
-      ~internal_deps:[lib]
-      ~install:(`Findlib (project_name ^ ".ketrew_backend"))
-  in
-  if Project.dep_opts_sat item ["ketrew"]
-  then Some item
+let ketrew_lib =
+  (* The library is `ketrew` for Ketrew ≤ 3.1.0, and after the switch
+     to Solvuu-build, it is `ketrew.lwt_unix`: *)
+  if Findlib.installed "ketrew.lwt_unix"
+  then Some "ketrew.lwt_unix"
+  else
+  if Findlib.installed "ketrew"
+  then Some "ketrew"
   else None
+
+let ketrew_backend : Project.item option =
+  Option.map ketrew_lib ~f:(fun klib ->
+      Project.lib (project_name ^ "_ketrew_backend")
+        ~thread:()
+        ~bin_annot:()
+        ~findlib_deps:(klib :: findlib_deps)
+        ~dir:"src/ketrew_backend"
+        ~style:(`Pack (project_name ^ "_ketrew_backend"))
+        ~internal_deps:[lib]
+        ~install:(`Findlib (project_name ^ ".ketrew_backend"))
+    )
 
 let app : Project.item =
   Project.app project_name
