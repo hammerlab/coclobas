@@ -71,6 +71,6 @@ let describe ~log =
   function
   | Kube k -> Gke_cluster.gcloud_describe ~log k
   | Local_docker _ as t -> return (display_name t, "")
-  | Aws_batch_queue a ->
+  | Aws_batch_queue _ as t ->
     return (display_name t, "")
 
