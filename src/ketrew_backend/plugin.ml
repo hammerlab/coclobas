@@ -289,7 +289,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       let open Ketrew_pure.Internal_pervasives.Log in
       let common = [
         "ketrew-markup/display", s "Display the contents of the run-parameters";
-        "server-status", s "Get the server status";
+        "ketrew-markup/server-status", s "Get the server status";
       ] in
       match rp with
       | `Created c -> common
@@ -315,16 +315,37 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     (string, Ketrew_pure.Internal_pervasives.Log.t) Deferred_result.t =
     fun rp ~host_io query ->
       let open Ketrew_pure.Internal_pervasives.Log in
+      let module Markup =
+        Ketrew_pure.Internal_pervasives.Display_markup in
       let created =
         match rp with `Created c -> c | `Running {created; _} -> created in
       match query, rp with
       | "ketrew-markup/display", rp ->
-        return (markup rp
-                |> Ketrew_pure.Internal_pervasives.Display_markup.serialize)
-      | "server-status", _ ->
+        return (markup rp |> Markup.serialize)
+      | "ketrew-markup/server-status", _ ->
         client_query begin
           Coclobas.Client.get_server_status_string created.client
         end
+        >>= fun engine_status ->
+        client_query (Coclobas.Client.get_job_list created.client)
+        >>= fun job_list ->
+        client_query (Coclobas.Client.get_cluster_description created.client)
+        >>= fun cluster_description ->
+        let status =
+          let open Markup in
+          description_list [
+            "Engine-status", command engine_status;
+            "Cluster", code_block cluster_description;
+            "Jobs",
+            begin match job_list with
+            | [] -> text "0 currently active"
+            | jobs ->
+              itemize
+                (List.map jobs ~f:(fun (`Id is, `Status s) ->
+                     ksprintf command "%s: %s" is s))
+            end;
+          ] in
+        return (status |> Markup.serialize)
       | "ketrew-markup/job-status", `Running {job_id; _} ->
         client_query begin
           Client.get_job_statuses created.client
@@ -375,6 +396,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 
 end
 let () =
-  Ketrew.Plugin.register_long_running_plugin ~name (module Long_running_implementation)
+  Ketrew.Plugin.register_long_running_plugin ~name
+    (module Long_running_implementation)
 
 include Long_running_implementation
