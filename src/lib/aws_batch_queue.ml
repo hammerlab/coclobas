@@ -36,3 +36,8 @@ let ensure_living t ~log =
   | other -> fail (`Aws_batch_queue (`Check_valid, other, err))
   end
 
+let describe t ~log =
+  let cmd =
+    sprintf "aws batch describe-job-queues --job-queues %s" t.queue_name in
+  command_must_succeed_with_output ~log t cmd
+
