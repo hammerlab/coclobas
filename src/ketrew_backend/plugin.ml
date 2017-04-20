@@ -296,8 +296,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | `Running c ->
         (
           ("ketrew-markup/job-status", s "Get the “raw” job status")
-          :: ("describe", s "Get a description of the job's current state")
-          :: ("logs", s "Get the `logs` blob")
+          :: ("ketrew-markup/describe",
+              s "Get a description of the job's current state")
+          :: ("ketrew-markup/logs", s "Get the `logs` blob")
           :: common
         )
 
@@ -307,6 +308,21 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     | `Ok o -> return o
     | `Error (`Client ce) ->
       fail (Ketrew_pure.Internal_pervasives.Log.verbatim (Client.Error.to_string ce))
+
+  let freshness_list_to_markup l ~how =
+    let open Ketrew_pure.Internal_pervasives.Display_markup in
+    List.map l
+      ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
+          description_list [
+            "Job-id", command id;
+            "Freshness", text frns;
+            begin match how with
+            | `Block -> "Output", code_block o
+            | `Link -> "Link", uri o
+            end;
+          ])
+    |> concat
+    |> serialize
 
   let query :
     run_parameters ->
@@ -351,7 +367,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
           Client.get_job_statuses created.client
             [job_id]
           >>= fun l ->
-          return Ketrew_pure.Internal_pervasives.Display_markup.(
+          return Markup.(
               description_list
                 (List.map l ~f:(fun (id, s) ->
                      "Job " ^ id,
@@ -368,29 +384,19 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                    ))
               |> serialize)
         end
-      | "describe" , `Running {job_id; _} ->
+      | "ketrew-markup/describe" , `Running {job_id; _} ->
         client_query begin
           Client.get_job_descriptions created.client [job_id]
-          >>= fun l ->
-          let rendered =
-            List.map l ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
-                sprintf "### Job %s\n### Freshness: %s\n### Output:\n\n%s"
-                  id frns o)
-            |> String.concat ~sep:"\n"
-          in
-          return rendered
+          >>| freshness_list_to_markup ~how:`Block
         end
-      | "logs", `Running {job_id; _} ->
+      | "ketrew-markup/logs", `Running {job_id; _} ->
+        let how =
+          match Job.Specification.kind created.specification with
+          | `Aws_batch -> `Link
+          | `Kube | `Local_docker -> `Block in
         client_query begin
           Client.get_job_logs created.client [job_id]
-          >>= fun l ->
-          let rendered =
-            List.map l ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
-                sprintf "### Job %s\n### Freshness: %s\n### Output:\n\n%s"
-                  id frns o)
-            |> String.concat ~sep:"\n"
-          in
-          return rendered
+          >>| freshness_list_to_markup ~how
         end
       | other, _ -> fail (s "Unknown query: " % s other)
 
