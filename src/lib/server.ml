@@ -501,6 +501,10 @@ let start t =
             >>= fun body_string ->
             incoming_job t body_string
             |> respond_result
+          | "/cluster/describe" ->
+            Cluster.describe ~log:t.log t.cluster
+            >>| (fun (a, b) -> `String (sprintf "%s\n%s" a b))
+            |> respond_result 
           | other ->
             let meth = req |> Request.meth |> Code.string_of_method in
             let headers = req |> Request.headers |> Header.to_string in

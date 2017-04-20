@@ -169,6 +169,14 @@ let get_server_status_string {base_url} =
   >>= fun () ->
   return body
 
+let get_cluster_description {base_url} =
+  let uri = Uri.with_path (Uri.of_string base_url) "cluster/describe" in
+  do_get uri
+  >>= fun (resp, body) ->
+  response_is_ok resp ~body ~meth:`Get ~uri
+  >>= fun () ->
+  return body
+
 let get_job_list {base_url} =
   let uri = Uri.with_path (Uri.of_string base_url) "jobs" in
   do_get uri
