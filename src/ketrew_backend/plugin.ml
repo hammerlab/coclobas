@@ -210,7 +210,7 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         end
       end
 
-  let rec markup : t -> Ketrew_pure.Internal_pervasives.Display_markup.t =
+  let rec markup ?status t =
     let open Ketrew_pure.Internal_pervasives.Display_markup in
     let job_spec js =
       let open Coclobas.Job.Specification in
@@ -265,42 +265,55 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
             | `Arn s -> text s);
         ]
     in
-    function
+    match t with
     | `Created c ->
-      description_list [
+      let status_mu =
+        Option.value status ~default:(text "Created (not sent to Coclobas)") in
+      [
+        "Status", status_mu;
         "Client", uri c.client.Coclobas.Client.base_url;
         "Program", option ~f:Ketrew_pure.Program.markup c.program; 
         "Playground-path", option ~f:command c.playground_path; 
         "Job", job_spec c.specification;
       ]
     | `Running rp ->
-      description_list [
-        "Created-as", markup (`Created rp.created);
-        "Job-ID", command rp.job_id;
-      ]
+      ["Job-ID", command rp.job_id;]
+      @ markup ?status (`Created rp.created)
+
 
   let log rp =
-    ["Coclobas", Ketrew_pure.Internal_pervasives.Display_markup.log (markup rp)]
+    [
+      "Coclobas",
+      Ketrew_pure.Internal_pervasives.Display_markup.(
+        description_list (markup rp) |> log)
+    ]
 
+  module Query_names = struct
+    let details_status = "ketrew-markup/Job details and status"
+    let server_status = "ketrew-markup/Server status"
+    let describe = "ketrew-markup/Call `describe`"
+    let logs = "ketrew-markup/Call `logs`"
+  end
 
   let additional_queries :
     run_parameters -> (string * Ketrew_pure.Internal_pervasives.Log.t) list =
     fun rp ->
       let open Ketrew_pure.Internal_pervasives.Log in
+      let open Query_names in
       let common = [
-        "ketrew-markup/display", s "Display the contents of the run-parameters";
-        "ketrew-markup/server-status", s "Get the server status";
+        details_status, s "Display the contents and the status of the job";
+        server_status, s "Get the server status";
       ] in
       match rp with
       | `Created c -> common
       | `Running c ->
-        (
-          ("ketrew-markup/job-status", s "Get the “raw” job status")
-          :: ("ketrew-markup/describe",
-              s "Get a description of the job's current state")
-          :: ("ketrew-markup/logs", s "Get the `logs` blob")
-          :: common
-        )
+        List.concat [
+          common;
+          [
+            describe, s "Get a description of the job's current state";
+            logs, s "Get the `logs` blob";
+          ];
+        ]
 
 
   let client_query m =
@@ -336,9 +349,38 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       let created =
         match rp with `Created c -> c | `Running {created; _} -> created in
       match query, rp with
-      | "ketrew-markup/display", rp ->
-        return (markup rp |> Markup.serialize)
-      | "ketrew-markup/server-status", _ ->
+      | ds, `Created _ when ds = Query_names.details_status ->
+        return Markup.(markup rp |> description_list |> serialize)
+      | ds, `Running {job_id; _} when ds = Query_names.details_status ->
+        client_query begin
+          Client.get_job_statuses created.client [job_id]
+          >>= fun l ->
+          let open Markup in
+          let markup_status =
+            function
+            | `Error ee -> concat [text "Error: "; command ee]
+            | `Started d -> concat [text "Started on "; date d]
+            | `Finished (d, `Failed) ->
+              concat [text "Failed on "; date d]
+            | `Finished (d, `Succeeded) ->
+              concat [text "Succeeded on "; date d]
+            | `Finished (d, `Killed) ->
+              concat [text "Killed on "; date d]
+            | `Submitted -> text "Submitted" in
+          let status =
+            match l with
+            | [_, one] -> markup_status one
+            | other ->
+              description_list [
+                "ERROR-WRONG-NUMBER-OF-STATUSES", 
+                concat ~sep:(text ", ")
+                  (List.map l ~f:(fun (id, s) ->
+                       concat [textf "Job %s: " id; markup_status s]));
+              ]
+          in
+          return Markup.(markup rp ~status |> description_list |> serialize)
+        end
+      | ds, _ when ds = Query_names.server_status ->
         client_query begin
           Coclobas.Client.get_server_status_string created.client
         end
@@ -362,34 +404,12 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
             end;
           ] in
         return (status |> Markup.serialize)
-      | "ketrew-markup/job-status", `Running {job_id; _} ->
-        client_query begin
-          Client.get_job_statuses created.client
-            [job_id]
-          >>= fun l ->
-          return Markup.(
-              description_list
-                (List.map l ~f:(fun (id, s) ->
-                     "Job " ^ id,
-                     (match s with
-                     | `Error ee -> concat [text "Error: "; command ee]
-                     | `Started d -> concat [text "Started on "; date d]
-                     | `Finished (d, `Failed) ->
-                       concat [text "Failed on "; date d]
-                     | `Finished (d, `Succeeded) ->
-                       concat [text "Succeeded on "; date d]
-                     | `Finished (d, `Killed) ->
-                       concat [text "Killed on "; date d]
-                     | `Submitted -> text "Submitted")
-                   ))
-              |> serialize)
-        end
-      | "ketrew-markup/describe" , `Running {job_id; _} ->
+      | ds, `Running {job_id; _} when ds = Query_names.describe ->
         client_query begin
           Client.get_job_descriptions created.client [job_id]
           >>| freshness_list_to_markup ~how:`Block
         end
-      | "ketrew-markup/logs", `Running {job_id; _} ->
+      | ds, `Running {job_id; _} when ds = Query_names.logs ->
         let how =
           match Job.Specification.kind created.specification with
           | `Aws_batch -> `Link
