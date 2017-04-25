@@ -3,11 +3,14 @@ open Internal_pervasives
 type t = {
   max_jobs: int;
   queue_name: string;
+  s3_bucket: string option;
 } [@@deriving make, yojson, show]
 
 let max_started_jobs t = t.max_jobs
 
 let queue_name t = t.queue_name
+
+let s3_bucket t = t.s3_bucket
 
 let command_must_succeed ~log cluster cmd =
   Hyper_shell.command_must_succeed ~log cmd

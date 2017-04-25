@@ -45,11 +45,9 @@ let main {port; test_kind} =
       ~make:(
         match test_kind with
         | `Aws_batch ->
-          let cmd = ["bash"; "-c"; prog_string] in
-          Coclobas_ketrew_backend.Plugin.create
+          Coclobas_ketrew_backend.Plugin.aws_batch_program
             ~base_url
-            (Coclobas.Aws_batch_job.Specification.make ~image:"ubuntu" cmd
-             |> Coclobas.Job.Specification.aws_batch)
+            ~image:"ocaml/opam" p
         | `Kubernetes ->
           Coclobas_ketrew_backend.Plugin.kubernetes_program
             ~base_url

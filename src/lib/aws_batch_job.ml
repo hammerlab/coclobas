@@ -5,6 +5,7 @@ module Specification = struct
   (* Cf.
      http://docs.aws.amazon.com/batch/latest/APIReference/API_ContainerProperties.html
   *)
+  module File_contents_mount = Kube_job.Specification.File_contents_mount
   type t = {
     image: string;
     memory: [ `MB of int ] [@default `MB 128];
@@ -13,7 +14,7 @@ module Specification = struct
     priviledged: bool [@default false];
     command: string list [@main];
     (* Mounting volumes seems to be only for host directories. *)
-    (* volume_mounts: [ `Nfs of Nfs_mount.t | `Constant of File_contents_mount.t ] list; *)
+    volume_mounts: [ `S3_constant of File_contents_mount.t ] list;
   } [@@deriving yojson, show, make]
 end
 
@@ -29,7 +30,7 @@ module Error = struct
       `Start of string * Specification.t *
                 [ `Json_parsing of
                     string * [ `Exn of exn | `String of string ]
-                | `Wrong_cluster of Cluster.t ]
+                | `Invalid_cluster of string * Cluster.t ]
   ] [@@deriving show]
   let start ~id ~specification e =
     `Aws_batch_job (`Start (id, specification, e))
@@ -52,30 +53,93 @@ let command_must_succeed_with_output ~log ?additional_json ~id cmd =
 let job_definition id = sprintf "coclodef-%s" id
 let job_name id = sprintf "coclojob-%s" id
 
+let canonicalize p =
+  String.split ~on:(`Character '/') p
+  |> begin function
+  | [] | [""] | [""; ""] -> [""; ""]
+  | "" :: more -> "" :: List.filter more ~f:((<>) "")
+  | other -> List.filter other ~f:((<>) "")
+  end
+  |> String.concat ~sep:"/"
+
 let start ~cluster ~log ~id ~specification =
-  let string s : Yojson.Safe.json = `String s in
-  let int s : Yojson.Safe.json = `Int s in
+  let open Specification in
+  Cluster.( match cluster with
+    | Kube _
+    | Local_docker _ ->
+      fail (Error.start ~id ~specification (`Invalid_cluster
+                                              ("Not an AWS-queue", cluster)))
+    | Aws_batch_queue q ->
+      Aws_batch_queue.(queue_name q, s3_bucket q) |> return)
+  >>= fun (job_queue, s3_bucket_opt) ->
+  Deferred_list.while_sequential specification.volume_mounts ~f:begin function
+  | `S3_constant {File_contents_mount. path; contents} ->
+    begin match s3_bucket_opt with
+    | None ->
+      fail (Error.start ~id ~specification
+              (`Invalid_cluster ("No S3 bucket configured", cluster)))
+    | Some s -> return s
+    end
+    >>= fun s3_prefix ->
+    let s3_filename =
+      sprintf "Coclo-%s-%s-%d-%s"
+        id Digest.(path ^ contents ^ id |> string |> to_hex)
+        Random.(int 100_000_000)
+        Filename.(basename path) in
+    let local_path = sprintf "/tmp/%s" s3_filename in
+    IO.write_file local_path ~content:contents
+    >>= fun () ->
+    let s3_uri = Uri.of_string s3_prefix in
+    let bucket = Uri.host_with_default ~default:"" s3_uri in
+    let s3_prefix_path = Uri.path s3_uri |> canonicalize in
+    let s3_full_path = Filename.concat s3_prefix_path s3_filename in
+    ksprintf
+      (command_must_succeed ~log ~id)
+      "aws s3 cp %s s3://%s%s \
+       --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers"
+      local_path bucket s3_full_path
+    >>= fun () ->
+    let download_cmd =
+      let mkdir =
+        sprintf " mkdir -m 777 -p %s || echo mkdir-failed "
+          (Filename.dirname path) in
+      let curl =
+        let url_path =
+          Filename.concat s3_prefix_path s3_filename in
+        sprintf "curl http://%s.s3-website-us-east-1.amazonaws.com%s -o %s"
+          bucket url_path path in
+      sprintf "{ %s ; sudo %s ; %s || sudo %s ;}"
+        mkdir mkdir curl curl
+    in
+    return (download_cmd)
+  end
+  >>= fun (s3_commands : string list) ->
   let json =
-    let open Specification in
+    let string s : Yojson.Safe.json = `String s in
+    let int s : Yojson.Safe.json = `Int s in
+    let command =
+      match s3_commands with
+      | [] -> specification.command
+      | more ->
+        [
+          "bash"; "-c";
+          String.concat ~sep:" && "
+            (s3_commands @ [List.map ~f:Filename.quote specification.command
+                            |> String.concat ~sep:" "])
+        ]
+    in
     let props =
       [
         "image", string specification.image;
         "vcpus", int specification.cpus;
         "memory", int (specification.memory |> fun (`MB i) -> i);
-        "command", `List (List.map ~f:string specification.command);
+        "command", `List (List.map ~f:string command);
         "privileged", `Bool specification.priviledged;
       ]
       @ Option.value_map ~default:[] specification.job_role ~f:(function
         | `Arn s -> ["jobRoleArn", string s])
     in
     `Assoc props in
-  Cluster.( match cluster with
-    | Kube _
-    | Local_docker _ ->
-      fail (Error.start ~id ~specification (`Wrong_cluster cluster))
-    | Aws_batch_queue q ->
-      Aws_batch_queue.queue_name q |> return)
-  >>= fun job_queue ->
   ksprintf
     (command_must_succeed ~log ~id)
     "aws batch register-job-definition --job-definition %s \
@@ -91,8 +155,8 @@ let start ~cluster ~log ~id ~specification =
     (job_name id) job_queue (job_definition id)
   >>= fun (out, err) ->
   Deferred_result.wrap_deferred
-    ~on_exn:(fun e -> 
-      Error.start ~id ~specification (`Json_parsing (out, `Exn e)))
+    ~on_exn:(fun e ->
+        Error.start ~id ~specification (`Json_parsing (out, `Exn e)))
     (fun () -> Yojson.Safe.from_string out |> Lwt.return)
   >>= fun json ->
   let job_id_opt =
