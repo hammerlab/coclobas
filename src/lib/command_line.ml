@@ -64,10 +64,10 @@ let client ~base_url action ids =
                   %s\n\n" id f d)
     |> return
   | `Status ->
-    Client.get_job_statuses client ids
-    >>= fun statuses ->
-    List.iter statuses ~f:(fun (r, s) ->
-      printf "%s is %s\n" r (Job.Status.show s))
+    Client.get_job_states client ids
+    >>= fun jobs ->
+    List.iter jobs ~f:(fun (r, s) ->
+      printf "%s is %s\n" r (Job.Status.show (Job.status s)))
     |> return
   | `List ->
     Client.get_job_list client
@@ -165,6 +165,7 @@ let main () =
       (`GCloud_kube_name gke_name)
       (`GCloud_zone gzone)
       (`Aws_queue_name queue_name)
+      (`Aws_s3_bucket s3_bucket)
       (`Max_nodes max_nodes)
       (`Machine_type machine_type) ->
       let i_need opt msg =
@@ -183,7 +184,7 @@ let main () =
       | `Local_docker ->
         Cluster.local_docker ~max_jobs:max_nodes
       | `Aws_batch_queue ->
-        Aws_batch_queue.make ~max_jobs:max_nodes
+        Aws_batch_queue.make () ~max_jobs:max_nodes ?s3_bucket
           ~queue_name:(i_need queue_name "A AWS-Batch queue name is required \
                                           for AWS-Batch-Queue clusters.")
         |> Cluster.aws_batch_queue
@@ -202,6 +203,9 @@ let main () =
       ~doc:"Zone of the GCloud-Kubernetes cluster."
     $ optional_string "aws-queue-name" (fun s -> `Aws_queue_name s)
       ~doc:"The name (or ARN) of the AWS-Batch queue."
+    $ optional_string "aws-s3-bucket" (fun s -> `Aws_s3_bucket s)
+      ~doc:"The prefix URI of an optional S3 bucket used by the AWS-Batch \
+            backend to store scripts and other data."
     $ begin
       pure (fun s -> `Max_nodes s)
       $ Arg.(

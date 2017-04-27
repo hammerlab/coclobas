@@ -76,9 +76,9 @@ let get_job_json_one_key t ~path ~ids ~json_key ~of_yojson =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_job_statuses t ids =
-  get_job_json_one_key t ~path:"job/status" ~ids ~json_key:"status"
-    ~of_yojson:Job.Status.of_yojson
+let get_job_states t ids =
+  get_job_json_one_key t ~path:"job/state" ~ids ~json_key:"state"
+    ~of_yojson:Job.of_yojson
 
 let get_json_keys ~uri ~parsers json =
   begin match json with

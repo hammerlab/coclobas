@@ -8,7 +8,7 @@ module Specification : sig
       path : string;
       point : string;
       read_only : bool;
-    }
+    } [@@deriving yojson, show, make]
     val show : t -> Ppx_deriving_runtime.string
     val make :
       host:string ->
@@ -21,6 +21,7 @@ module Specification : sig
   end
   module File_contents_mount : sig
     type t = { path : string; contents : string; }
+    [@@deriving yojson, show, make]
     val show : t -> Ppx_deriving_runtime.string
     val make : path:string -> string -> t
     val path : t -> string

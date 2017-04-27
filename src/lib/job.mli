@@ -20,16 +20,10 @@ module Specification : sig
 end
 
 type t
+[@@deriving yojson,show ] 
 
-val show : t -> string
- 
-val make :
-  id: string ->
-  (* ?status: Status.t -> *)
-  (* ?update_errors: string list -> *)
-  (* ?start_errors: string list -> *)
-  (* ?latest_error: float -> *)
-  Specification.t -> t
+val make : id: string -> Specification.t -> t
+  
 
 val id : t -> string
 val status : t -> Status.t
