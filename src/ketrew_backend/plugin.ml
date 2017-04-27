@@ -192,11 +192,11 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     fun rp ~host_io ->
       running rp begin fun job_id client spec ->
         classify_client_error begin
-          Client.get_job_statuses client [job_id]
-          >>= fun statuses ->
-          begin match statuses with
-          | [(_, st)] ->
-            begin match st with
+          Client.get_job_states client [job_id]
+          >>= fun jobs ->
+          begin match jobs with
+          | [(_, job)] ->
+            begin match Job.status job with
             | `Finished (_,`Succeeded) ->
               return (`Succeeded rp)
             | `Error e ->
@@ -357,6 +357,40 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     |> concat
     |> serialize
 
+  module Markup = Ketrew_pure.Internal_pervasives.Display_markup
+
+  let markup_job_state : Coclobas.Job.t -> Markup.t = fun job ->
+    let open Markup in
+    let status =
+      match Coclobas.Job.status job with
+      | `Error ee -> concat [text "Error: "; command ee]
+      | `Started d -> concat [text "Started on "; date d]
+      | `Finished (d, `Failed) ->
+        concat [text "Failed on "; date d]
+      | `Finished (d, `Succeeded) ->
+        concat [text "Succeeded on "; date d]
+      | `Finished (d, `Killed) ->
+        concat [text "Killed on "; date d]
+      | `Submitted -> text "Submitted"
+    in
+    let error_list = function
+    | [] -> text "None."
+    | more ->
+      let length_encoding =
+        List.fold more ~init:[] ~f:(fun prev cur ->
+            match prev with
+            | (hn, hv) :: t when hv = cur -> (hn + 1, hv) :: t
+            | _ -> (1, cur) :: prev)
+        |> List.rev in
+      itemize (List.map length_encoding ~f:(fun (x, err) ->
+          concat [textf "%d × " x; code_block err]))
+    in
+    description_list [
+      "Engine-status", status;
+      "Start-errors", Coclobas.Job.start_errors job |> error_list;
+      "Update-errors", Coclobas.Job.update_errors job |> error_list;
+    ]
+
   let query :
     run_parameters ->
     host_io:Ketrew.Host_io.t ->
@@ -364,8 +398,6 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     (string, Ketrew_pure.Internal_pervasives.Log.t) Deferred_result.t =
     fun rp ~host_io query ->
       let open Ketrew_pure.Internal_pervasives.Log in
-      let module Markup =
-        Ketrew_pure.Internal_pervasives.Display_markup in
       let created =
         match rp with `Created c -> c | `Running {created; _} -> created in
       match query, rp with
@@ -373,29 +405,18 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         return Markup.(markup rp |> description_list |> serialize)
       | ds, `Running {job_id; _} when ds = Query_names.details_status ->
         client_query begin
-          Client.get_job_statuses created.client [job_id]
+          Client.get_job_states created.client [job_id]
           >>= fun l ->
           let open Markup in
-          let markup_status =
-            function
-            | `Error ee -> concat [text "Error: "; command ee]
-            | `Started d -> concat [text "Started on "; date d]
-            | `Finished (d, `Failed) ->
-              concat [text "Failed on "; date d]
-            | `Finished (d, `Succeeded) ->
-              concat [text "Succeeded on "; date d]
-            | `Finished (d, `Killed) ->
-              concat [text "Killed on "; date d]
-            | `Submitted -> text "Submitted" in
           let status =
             match l with
-            | [_, one] -> markup_status one
+            | [_, one] -> markup_job_state one
             | other ->
               description_list [
                 "ERROR-WRONG-NUMBER-OF-STATUSES", 
                 concat ~sep:(text ", ")
                   (List.map l ~f:(fun (id, s) ->
-                       concat [textf "Job %s: " id; markup_status s]));
+                       concat [textf "Job %s: " id; markup_job_state s]));
               ]
           in
           return Markup.(markup rp ~status |> description_list |> serialize)

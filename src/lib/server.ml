@@ -377,13 +377,13 @@ let initialization t =
   Lwt.async (fun () -> loop t);
   return ()
 
-let get_job_status t ids =
+let get_job_state t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
       Job.get t.storage id
       >>= fun job ->
       return (`Assoc [
           "id", `String id;
-          "status", Job.status job |> Job.Status.to_yojson;
+          "state", Job.to_yojson job;
         ]))
   >>= fun l ->
   return (`Json (`List l))
@@ -488,8 +488,8 @@ let start t =
             empty_logs t |> respond_result
           | "/jobs" ->
             get_jobs t |> respond_result
-          | "/job/status" ->
-            get_job_status t (job_ids_of_uri uri) |> respond_result
+          | "/job/state" ->
+            get_job_state t (job_ids_of_uri uri) |> respond_result
           | "/job/logs" ->
             get_job_logs t (job_ids_of_uri uri) |> respond_result
           | "/job/describe" ->

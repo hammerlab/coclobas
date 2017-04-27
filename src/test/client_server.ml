@@ -84,14 +84,14 @@ let get_status how ids ~port =
     Lwt_io.read_lines process#stdout |> Lwt_stream.to_list
   | `Client ->
     Coclobas.Client.(
-      get_job_statuses
+      get_job_states
         (make (make_url port ""))
         ids
       >>= fun res ->
       match res with
       | `Ok stats ->
         return (List.map stats ~f:(fun (id, st) ->
-            sprintf "%s: %s" id (Coclobas.Job.Status.show st)))
+            sprintf "%s: %s" id Coclobas.Job.(Status.show (status st))))
       | `Error (`Client c) -> failf "Client error: %s" (Error.to_string c)
     )
   end

@@ -64,10 +64,10 @@ let client ~base_url action ids =
                   %s\n\n" id f d)
     |> return
   | `Status ->
-    Client.get_job_statuses client ids
-    >>= fun statuses ->
-    List.iter statuses ~f:(fun (r, s) ->
-      printf "%s is %s\n" r (Job.Status.show s))
+    Client.get_job_states client ids
+    >>= fun jobs ->
+    List.iter jobs ~f:(fun (r, s) ->
+      printf "%s is %s\n" r (Job.Status.show (Job.status s)))
     |> return
   | `List ->
     Client.get_job_list client

@@ -72,41 +72,19 @@ let fresh spec =
 let make_path id =
   (* TODO: use this in Kube_jobs uses of `~section` *)
   function
-  | `Specification -> ["job"; id; "specification.json"]
-  | `Status -> ["job"; id; "status.json"]
   | `Saved_state -> ["job"; id; "saved_state.json"]
   | `Describe_output -> ["job"; id; "describe.out"]
   | `Logs_output -> ["job"; id; "logs.out"]
 
 let save st job =
   Storage.Json.save_jsonable st
-    ~path:(make_path (id job) `Specification)
-    (Specification.to_yojson job.specification)
-  >>= fun () ->
-  Storage.Json.save_jsonable st
-    ~path:(make_path (id job) `Status)
-    (Status.to_yojson job.status)
-  >>= fun () ->
-  Storage.Json.save_jsonable st
     ~path:(make_path (id job) `Saved_state)
-    (State.to_yojson job.saved_state)
+    (to_yojson job)
 
 let get st job_id =
   Storage.Json.get_json st
-    ~path:(make_path job_id `Specification)
-    ~parse:Specification.of_yojson
-  >>= fun specification ->
-  Storage.Json.get_json st
-    ~path:(make_path job_id `Status)
-    ~parse:Status.of_yojson
-  >>= fun status ->
-  Storage.Json.get_json st
     ~path:(make_path job_id `Saved_state)
-    ~parse:State.of_yojson
-  >>= fun saved_state ->
-  return {id = job_id; specification; status;
-          update_errors = []; start_errors = [];
-          latest_error = None; saved_state}
+    ~parse:of_yojson
 
 let kind t = Specification.kind t.specification
 
