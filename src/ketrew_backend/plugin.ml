@@ -100,7 +100,8 @@ let aws_batch_program ~base_url ~image ?(volume_mounts = []) p =
        Coclobas.Aws_batch_job.Specification.(
          let extra_mount =
            `S3_constant (File_contents_mount.make ~path:script_path (script)) in
-         make ~image ~volume_mounts:(extra_mount :: volume_mounts) cmd))
+         make ~priviledged:true
+           ~image ~volume_mounts:(extra_mount :: volume_mounts) cmd))
 
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 
