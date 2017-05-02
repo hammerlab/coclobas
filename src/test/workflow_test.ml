@@ -7,9 +7,10 @@ type params = {
       [@enum [ "local-docker", `Local_docker;
                "kubernetes", `Kubernetes;
                "aws-batch", `Aws_batch ]];
+  additional_test: string list;
 } [@@deriving cmdliner]
 
-let main {port; test_kind} =
+let main {port; test_kind; additional_test} =
   let base_url = sprintf "http://127.0.0.1:%d" port in
   let tags more = "coclobas" :: "test" :: more in
   let open Ketrew.EDSL in
@@ -22,7 +23,7 @@ let main {port; test_kind} =
         | `Aws_batch ->
           Coclobas_ketrew_backend.Plugin.create
             ~base_url
-            (Coclobas.Aws_batch_job.Specification.make ~image:"ubuntu" cmd
+            (Coclobas.Aws_batch_job.Specification.make ~image:"ocaml/opam" cmd
              |> Coclobas.Job.Specification.aws_batch)
         | `Kubernetes ->
           Coclobas_ketrew_backend.Plugin.create
@@ -36,26 +37,28 @@ let main {port; test_kind} =
              |> Coclobas.Job.Specification.local_docker)
       )
   in
-  let of_program tag p =
+  let of_program ?image tag p =
     let prog_string = Ketrew_pure.Program.to_single_shell_command p in
     workflow_node without_product
-      ~name:(sprintf "Coclobas test uses Program.t (%d bytes)"
-               (String.length prog_string))
+      ~name:(sprintf "Coclotest Program.t (%d B), %s on %s"
+               (String.length prog_string)
+               tag
+               Option.(value ~default:"default" image))
       ~tags:(tags ["should-" ^ tag; "program"])
       ~make:(
         match test_kind with
         | `Aws_batch ->
           Coclobas_ketrew_backend.Plugin.aws_batch_program
             ~base_url
-            ~image:"ocaml/opam" p
+            ~image:(Option.value ~default:"ocaml/opam" image) p
         | `Kubernetes ->
           Coclobas_ketrew_backend.Plugin.kubernetes_program
             ~base_url
-            ~image:"ubuntu" p
+            ~image:(Option.value ~default:"ubuntu" image) p
         | `Local_docker ->
           Coclobas_ketrew_backend.Plugin.local_docker_program
             ~base_url
-            ~image:"ubuntu" p
+            ~image:(Option.value ~default:"ubuntu" image) p
       )
   in
   let wf =
@@ -138,13 +141,22 @@ let main {port; test_kind} =
             )
         )
     in
+    let additional =
+      match additional_test with
+      | [] -> []
+      | image :: cmds ->
+        [
+          depends_on (of_program ~image "additional"
+                        Program.(chain (List.map ~f:sh cmds)))
+        ]
+    in
     let kubes = [
       depends_on node1;
       depends_on node2;
       depends_on node3;
       depends_on node4;
       depends_on node4big;
-    ] in
+    ] @ additional in
     let locals = [
       depends_on node1;
       depends_on node2;
@@ -153,13 +165,13 @@ let main {port; test_kind} =
       depends_on node5;
       depends_on node6;
       depends_on node7;
-    ] in
+    ] @ additional in
     let aws = [
       depends_on node1;
       depends_on node2;
       depends_on node4;
       depends_on node4big;
-    ] in
+    ] @ additional in
     let edges =
       match test_kind with
       | `Kubernetes -> kubes
