@@ -86,7 +86,8 @@ let local_docker_program ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
             extra_mount_container_side // playground_dir // script_filename]
        ))
 
-let aws_batch_program ~base_url ~image ?(volume_mounts = []) p =
+let aws_batch_program ~base_url ~image ?(volume_mounts = [])
+    ?memory ?cpus ?job_role p =
   let script_path = "/tmp/coclobas-script.sh" in
   let cmd = ["sh"; script_path ] in
   let script =
@@ -100,7 +101,8 @@ let aws_batch_program ~base_url ~image ?(volume_mounts = []) p =
        Coclobas.Aws_batch_job.Specification.(
          let extra_mount =
            `S3_constant (File_contents_mount.make ~path:script_path (script)) in
-         make ~image ~volume_mounts:(extra_mount :: volume_mounts) cmd))
+         make ~priviledged:true ?memory ?cpus ?job_role
+           ~image ~volume_mounts:(extra_mount :: volume_mounts) cmd))
 
 module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
 

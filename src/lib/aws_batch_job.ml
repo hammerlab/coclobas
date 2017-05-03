@@ -108,8 +108,11 @@ let start ~cluster ~log ~id ~specification =
           Filename.concat s3_prefix_path s3_filename in
         sprintf "curl http://%s.s3-website-us-east-1.amazonaws.com%s -o %s"
           bucket url_path path in
-      sprintf "{ %s ; sudo %s ; %s || sudo %s ;}"
+      sprintf "{ echo 'Downloading %s' ; { %s ; sudo %s ; %s || sudo %s ;} \
+               || echo 'Downloading %s failed' ; } "
+        s3_full_path
         mkdir mkdir curl curl
+        s3_full_path
     in
     return (download_cmd)
   end
