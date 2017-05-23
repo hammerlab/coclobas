@@ -19,11 +19,10 @@ val start :
    | `Log of Log.Error.t ]) Deferred_result.t
 
 val describe :
-  log:Log.t ->
-  id:string ->
-  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
-   [> `Log of Log.Error.t
-   | `Shell_command of Hyper_shell.Error.t]) Deferred_result.t
+  _ Job_common.Query_result.call_function
+
+val get_logs:
+  _ Job_common.Query_result.call_function
 
 val kill :
   log:Log.t ->
@@ -31,13 +30,6 @@ val kill :
   (unit,
    [> `Shell_command of Hyper_shell.Error.t
    | `Log of Log.Error.t ]) Deferred_result.t
-
-val get_logs:
-  log:Log.t ->
-  id: string ->
-  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
-   [> `Log of Log.Error.t
-   | `Shell_command of Hyper_shell.Error.t]) Deferred_result.t
 
 val get_update :
   log: Log.t ->

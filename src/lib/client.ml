@@ -101,59 +101,35 @@ let get_json_keys ~uri ~parsers json =
   | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
   end
 
-let get_job_descriptions t ids =
-  let path = "job/describe" in
+(* For describe or logs *)
+let get_job_query_result ~path t ids =
   get_job_jsons t ~path ~ids
   >>= fun json ->
   let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
-  let get_string name =
-    function
-    | `String i -> `Ok i
-    | other -> `Error (sprintf "%s not a string" name)
-  in
-  get_json_keys ~uri json ~parsers:[
-    "id", get_string "id";
-    "description", get_string "description";
-    "freshness", get_string "freshness";
-  ]
-  >>= fun (res : string list list) ->
-  Deferred_list.while_sequential res ~f:(
-    function
-    | [id; descr; freshness] ->
-      return (`Id id, `Describe_output descr, `Freshness freshness)
-    | other ->
-      ksprintf failwith
-        "This should never happen: 3 parsers  Vs %d results: [%s]"
-        (List.length other)
-        (String.concat ~sep:", " other)
-  )
+  begin match json with
+  | `List l ->
+    Deferred_list.while_sequential l ~f:(function
+      | `Assoc ["id", `String id;
+                "output", yoj] ->
+        begin match (Job_common.Query_result.of_yojson yoj) with
+        | Ok output ->
+          return (id, output)
+        | Error e ->
+          fail (`Client (`Json_parsing
+                           (uri, "Not an query-result", yoj)))
+        end
+      | other ->
+        fail (`Client (`Json_parsing
+                         (uri, "Not an {id: ... output: ...}", other)))
+      )
+  | other -> fail (`Client (`Json_parsing (uri, "Not a List", other)))
+  end
+
+let get_job_descriptions t ids =
+  get_job_query_result ~path:"job/describe" t ids
 
 let get_job_logs t ids =
-  let path = "job/logs" in
-  get_job_jsons t ~path ~ids
-  >>= fun json ->
-  let uri = uri_of_ids t.base_url path ids in (* Only for error values: *)
-  let get_string name =
-    function
-    | `String i -> `Ok i
-    | other -> `Error (sprintf "%s not a string" name)
-  in
-  get_json_keys ~uri json ~parsers:[
-    "id", get_string "id";
-    "output", get_string "output";
-    "freshness", get_string "freshness";
-  ]
-  >>= fun (res : string list list) ->
-  Deferred_list.while_sequential res ~f:(
-    function
-    | [id; output; freshness] ->
-      return (`Id id, `Describe_output output, `Freshness freshness)
-    | other ->
-      ksprintf failwith
-        "This should never happen: 3 parsers  Vs %d results: [%s]"
-        (List.length other)
-        (String.concat ~sep:", " other)
-  )
+  get_job_query_result ~path:"job/logs" t ids
 
 let kill_jobs {base_url} ids =
   let uri = uri_of_ids base_url "job/kill" ids in

@@ -54,8 +54,7 @@ val get_logs :
   storage:Storage.t ->
   log:Log.t ->
   t ->
-  ([ `Archived of [ `Shell_command of Hyper_shell.Error.t ] | `Fresh ] *
-   string,
+  (Job_common.Query_result.t,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
    | `Job of [> `Missing_aws_state of string ]
@@ -66,8 +65,7 @@ val describe :
   storage:Storage.t ->
   log:Log.t ->
   t ->
-  ([ `Archived of [ `Shell_command of Hyper_shell.Error.t ] | `Fresh ] *
-   string,
+  (Job_common.Query_result.t,
    [> `Log of Log.Error.t
    | `Shell_command of Hyper_shell.Error.t
    | `Job of [> `Missing_aws_state of string ]

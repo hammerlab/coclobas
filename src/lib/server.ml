@@ -388,26 +388,18 @@ let get_job_state t ids =
   >>= fun l ->
   return (`Json (`List l))
 
-let make_json_of_freshness_result ~freshness ~id ~key ~value =
-  let frstr =
-    match freshness with
-    | `Fresh -> "Fresh"
-    | `Archived e -> sprintf "Archived because of error: %s" (Error.to_string e)
-  in
-  (`Assoc [
-      "id", `String id;
-      key, `String value;
-      "freshness", `String frstr;
-    ])
 
 let get_job_logs t ids =
   Deferred_list.while_sequential ids ~f:(fun id ->
       Job.get t.storage id
       >>= fun job ->
       Job.get_logs ~storage:t.storage ~log:t.log job
-      >>= fun (freshness, value) ->
-      return (make_json_of_freshness_result
-                ~id ~freshness ~key:"output" ~value))
+      >>= fun job_query_result ->
+      return (`Assoc [
+          "id", `String id;
+          "output", Job_common.Query_result.to_yojson  job_query_result;
+        ])
+    )
   >>= fun l ->
   return (`Json (`List l))
 
@@ -417,9 +409,12 @@ let get_job_description t ids =
       Job.get t.storage id
       >>= fun job ->
       Job.describe ~storage:t.storage ~log:t.log job
-      >>= fun (freshness, value) ->
-      return (make_json_of_freshness_result
-                ~id ~freshness ~key:"description" ~value))
+      >>= fun job_query_result ->
+      return (`Assoc [
+          "id", `String id;
+          "output", Job_common.Query_result.to_yojson  job_query_result;
+        ])
+    )
   >>= fun l ->
   return (`Json (`List l))
 

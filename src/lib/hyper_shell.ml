@@ -9,7 +9,7 @@ module Error = struct
     stderr: string option;
     status: [`Exited of int | `Signaled of int | `Stopped of int] option;
     exn: string option;
-  } [@@deriving yojson,make]
+  } [@@deriving yojson,make,show]
 
   let of_result cmd =
     function
@@ -74,3 +74,48 @@ let command_must_succeed
     ~log ?section ?additional_json cmd
   >>= fun (_, _) ->
   return ()
+
+
+module Saved_command = struct
+  type t = {
+    command: string;
+    outcome: [
+      | `Ok of string * string
+      | `Error of Error.t
+    ];
+    archived: string option;
+  } [@@deriving yojson,show,make]
+
+
+  let run ~storage ~log ~section ~cmd ~path ~keep_the =
+    begin
+      command_must_succeed_with_output ~log ~section cmd
+      >>< function
+      | `Ok (out, err) ->
+        let new_output = out ^ err in
+        begin match keep_the with
+        | `Latest ->
+          Storage.update storage path new_output
+        | `Largest ->
+          Storage.read storage path
+          >>= begin function
+          | Some old when String.length old > String.length new_output ->
+            return ()
+          | Some _ (* smaller *) | None ->
+            Storage.update storage path new_output
+          end
+        end
+        >>= fun () ->
+        Storage.read storage path
+        >>= fun archived ->
+        return (make
+                  ~command:cmd ~outcome:(`Ok (out, err))
+                  ?archived ())
+      | `Error (`Shell_command e) ->
+        Storage.read storage path
+        >>= fun archived ->
+        return (make
+                  ~command:cmd ~outcome:(`Error e) ?archived ())
+      | `Error (`Log _ as e) -> fail e
+    end
+end
