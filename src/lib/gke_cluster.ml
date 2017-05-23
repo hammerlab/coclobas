@@ -5,7 +5,8 @@ type t = {
   zone: string;
   min_nodes: int [@default 1];
   max_nodes: int;
-  machine_type: string [@default "n1-highmem-8"]
+  machine_type: string [@default "n1-highmem-8"];
+  image_type: string option;
 } [@@deriving yojson, show, make]
 
 let save ~storage:st cluster =
@@ -37,16 +38,18 @@ let max_started_jobs cluster =
 
 let gcloud_start ~log t =
   let cmd =
-    (* We use `--image-type=container_vm` because of some problem we have been
-       having with gcloud's new (Oct 2016) “GCI” default image. *)
+    let image_type_option =
+      Option.value_map t.image_type ~default:"" ~f:(sprintf "--image-type=%s")
+    in
     sprintf 
-      "gcloud container clusters create %s \
-       --image-type=container_vm \
+      "gcloud container clusters create %s %s \
        --quiet --wait \
        --zone %s --num-nodes=%d --min-nodes=%d --max-nodes=%d \
        --machine-type=%s \
        --enable-autoscaling"
-      t.name t.zone t.min_nodes t.min_nodes t.max_nodes t.machine_type
+      t.name image_type_option
+      t.zone t.min_nodes t.min_nodes t.max_nodes
+      t.machine_type
   in
   command_must_succeed ~log t cmd
 

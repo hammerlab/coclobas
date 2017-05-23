@@ -6,11 +6,15 @@ type t = private {
   min_nodes : int;
   max_nodes : int;
   machine_type : string;
+  image_type: string option;
 } [@@deriving yojson, show]
 
 val make :
   zone:string ->
-  ?min_nodes:int -> max_nodes:int -> ?machine_type:string -> string -> t
+  ?min_nodes:int -> max_nodes:int ->
+  ?machine_type: string ->
+  ?image_type: string ->
+  string -> t
 
 val max_started_jobs: t -> int
 (** The maximum number of jobs that Coclobas will attempt to run

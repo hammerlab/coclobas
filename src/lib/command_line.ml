@@ -164,6 +164,7 @@ let main () =
       cluster_kind
       (`GCloud_kube_name gke_name)
       (`GCloud_zone gzone)
+      (`Gke_image_type image_type)
       (`Aws_queue_name queue_name)
       (`Aws_s3_bucket s3_bucket)
       (`Max_nodes max_nodes)
@@ -179,6 +180,7 @@ let main () =
           (i_need gke_name "A cluster-name is required for GKE clusters.")
           ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
           ~max_nodes
+          ?image_type
           ?machine_type
         |> Cluster.gke
       | `Local_docker ->
@@ -201,6 +203,9 @@ let main () =
       ~doc:"Name of the GCloud-Kubernetes cluster."
     $ optional_string "gcloud-zone" (fun s -> `GCloud_zone s)
       ~doc:"Zone of the GCloud-Kubernetes cluster."
+    $ optional_string "gke-image-type" (fun s -> `Gke_image_type s)
+      ~doc:"Override the default `--image-type` of \
+            the GCloud-Kubernetes cluster."
     $ optional_string "aws-queue-name" (fun s -> `Aws_queue_name s)
       ~doc:"The name (or ARN) of the AWS-Batch queue."
     $ optional_string "aws-s3-bucket" (fun s -> `Aws_s3_bucket s)
