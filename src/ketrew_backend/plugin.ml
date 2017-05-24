@@ -344,20 +344,65 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
     | `Error (`Client ce) ->
       fail (Ketrew_pure.Internal_pervasives.Log.verbatim (Client.Error.to_string ce))
 
-  let freshness_list_to_markup l ~how =
+  let job_query_result_to_markup l =
     let open Ketrew_pure.Internal_pervasives.Display_markup in
-    List.map l
-      ~f:(fun (`Id id, `Describe_output o, `Freshness frns) ->
-          description_list [
-            "Job-id", command id;
-            "Freshness", text frns;
-            begin match how with
-            | `Block -> "Output", code_block o
-            | `Link -> "Link", uri o
-            end;
-          ])
+    List.map l ~f:(fun (id, qr) ->
+        description_list
+          (("Job-id", command id)
+           :: List.map qr ~f:(fun (section, result) ->
+               section,
+               begin match result with
+               | `Url u -> uri u
+               | `Saved_command s ->
+                 let open Hyper_shell.Saved_command in
+                 let code_block_or_empty =
+                   function
+                   | s when String.strip s = "" -> text "Empty"
+                   | other -> code_block other in
+                 let should_display_archived = ref true in
+                 let command_and_result = [
+                   "Command", command s.command;
+                   begin match s.outcome with
+                   | `Error e ->
+                     "Error",
+                     let open Hyper_shell.Error in
+                     description_list [
+                       "STDOUT", option ~f:code_block_or_empty e.stdout;
+                       "STDERR", option ~f:code_block_or_empty e.stderr;
+                       "Status", 
+                       option e.status
+                         ~f:(text_of_stringable Pvem_lwt_unix.System.Shell.status_to_string);
+                       "Exception", option e.exn ~f:command;
+                     ]
+                   | `Ok (out, err) ->
+                     begin
+                       if Some (out ^ err) =
+                          Option.map ~f:Output_archive.to_string s.archived
+                       then should_display_archived := false
+                     end;
+                     "Success", description_list [
+                       "STDOUT", code_block_or_empty out;
+                       "STDERR", code_block_or_empty err;
+                     ]
+                   end;
+                 ] in
+                 let archived =
+                   let display_archive a =
+                     let open Output_archive in
+                     description_list [
+                       "On", date a.date;
+                       "STDOUT", code_block_or_empty a.out;
+                       "STDERR", code_block_or_empty a.err;
+                     ] in
+                   if !should_display_archived then [
+                     "Archived content", option ~f:display_archive s.archived;
+                   ] else [] in
+                 command_and_result @ archived |> description_list
+               end)))
     |> concat
     |> serialize
+
+
 
   module Markup = Ketrew_pure.Internal_pervasives.Display_markup
 
@@ -450,16 +495,12 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
       | ds, `Running {job_id; _} when ds = Query_names.describe ->
         client_query begin
           Client.get_job_descriptions created.client [job_id]
-          >>| freshness_list_to_markup ~how:`Block
+          >>| job_query_result_to_markup
         end
       | ds, `Running {job_id; _} when ds = Query_names.logs ->
-        let how =
-          match Job.Specification.kind created.specification with
-          | `Aws_batch -> `Link
-          | `Kube | `Local_docker -> `Block in
         client_query begin
           Client.get_job_logs created.client [job_id]
-          >>| freshness_list_to_markup ~how
+          >>| job_query_result_to_markup
         end
       | other, _ -> fail (s "Unknown query: " % s other)
 

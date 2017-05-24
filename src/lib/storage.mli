@@ -46,6 +46,12 @@ module Json : sig
     string ->
     ('a, [> `Storage of [> Error.common ] ]) Deferred_result.t
 
+  val get_json_opt : t -> path:key ->
+    parse:(Yojson.Safe.json ->
+           ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->
+    ('a option,
+     [> `Storage of [> Error.common]])
+      Deferred_result.t
   val get_json : t -> path:key ->
     parse:(Yojson.Safe.json ->
            ('a, string) Ppx_deriving_yojson_runtime.Result.result) ->

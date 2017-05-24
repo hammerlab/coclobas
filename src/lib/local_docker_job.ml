@@ -10,12 +10,15 @@ module Specification = struct
   } [@@deriving yojson, show, make]
 end
 
+let job_section id = ["job"; id; "commands"]
+
 let command_must_succeed ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed ~log cmd ?additional_json
-    ~section:["job"; id; "commands"]
+    ~section:(job_section id)
 let command_must_succeed_with_output ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed_with_output ~log cmd ?additional_json
-    ~section:["job"; id; "commands"]
+    ~section:(job_section id)
+
 let exec c =
   List.map c ~f:Filename.quote |> String.concat ~sep:" "
 
@@ -36,26 +39,32 @@ let start ~log ~id ~specification =
      @ specification.command
      |> exec)
 
-let always_fresh (out, err) =
-  (`Fresh, out ^ err)
+let describe ~storage ~log ~id =
+  let save_path tag = Job_common.save_path ~tag id `Describe_output in
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~path:(save_path "stats")
+    ~section:(job_section id)
+    ~keep_the:`Latest
+    ~cmd:(["docker"; "stats"; "--no-stream"; id] |> exec)
+  >>= fun stat_result ->
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~path:(save_path "inspect")
+    ~section:(job_section id)
+    ~keep_the:`Latest
+    ~cmd:(["docker"; "inspect"; id] |> exec)
+  >>= fun inspect_result ->
+  return ["Stats", `Saved_command stat_result;
+          "Inspection", `Saved_command inspect_result]
 
-let describe ~log ~id =
-  command_must_succeed_with_output ~log ~id
-    (["docker"; "stats"; "--no-stream"; id] |> exec)
-  >>= fun (statout, staterr) ->
-  command_must_succeed_with_output ~log ~id
-    (["docker"; "inspect"; id] |> exec)
-  >>= fun (inspout, insperr) ->
-  return (always_fresh
-            (sprintf "#### Stats:\n%s\n\n\
-                      #### Inspection:\n%s\n\n\
-                      #### Errors:\n%s\n%s\n"
-               statout inspout staterr insperr, ""))
-
-let get_logs ~log ~id =
-  command_must_succeed_with_output ~log ~id
-    (["docker"; "logs"; id] |> exec)
-  >>| always_fresh
+let get_logs ~storage ~log ~id =
+  let save_path = Job_common.save_path id `Logs_output in
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~path:save_path
+    ~section:(job_section id)
+    ~keep_the:`Latest
+    ~cmd:(["docker"; "logs"; id] |> exec)
+  >>= fun logres ->
+  return (Job_common.Query_result.one_saved "Logs" logres)
 
 let kill ~log ~id =
   command_must_succeed ~log ~id

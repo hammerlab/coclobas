@@ -58,10 +58,9 @@ let client ~base_url action ids =
     Client.get_job_descriptions client ids
     >>= fun descs ->
     List.iter descs
-      ~f:(fun (`Id id, `Describe_output d, `Freshness f) ->
+      ~f:(fun (id, d) ->
           printf "ID: %s\n\
-                  Freshness: %s\n\
-                  %s\n\n" id f d)
+                  %s\n\n" id (Job_common.Query_result.show d))
     |> return
   | `Status ->
     Client.get_job_states client ids

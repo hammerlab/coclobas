@@ -199,13 +199,18 @@ let get_update ~log ~id ~state =
     fail (Error.status ~id ~aws_id:state.State.aws_id (`Parsing_status status))
   end
 
-let describe ~log ~id ~state =
-  ksprintf
-    (command_must_succeed_with_output ~log ~id)
+let describe ~storage ~log ~id ~state =
+  let cmd =
+    sprintf
     "aws batch describe-jobs --jobs %s"
-    state.State.aws_id
-  >>= fun (out, err) ->
-  return (`Fresh, out)
+    state.State.aws_id in
+  let save_path = Job_common.save_path id `Describe_output in
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~cmd ~path:save_path
+    ~section:(Job_common.job_section id)
+    ~keep_the:`Latest
+  >>= fun logres ->
+  return (Job_common.Query_result.one_saved "Description" logres)
 
 let get_logs ~log ~id ~state =
   let cloudwatch_url =
@@ -215,7 +220,7 @@ let get_logs ~log ~id ~state =
        streamFilter=typeLogStreamPrefix"
       (job_name id) state.State.aws_id
   in
-  return (`Fresh, cloudwatch_url)
+  return (Job_common.Query_result.one_url "Logs-link" cloudwatch_url)
 
 let kill ~log ~id ~state =
   ksprintf

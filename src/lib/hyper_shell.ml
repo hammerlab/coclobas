@@ -9,7 +9,7 @@ module Error = struct
     stderr: string option;
     status: [`Exited of int | `Signaled of int | `Stopped of int] option;
     exn: string option;
-  } [@@deriving yojson,make]
+  } [@@deriving yojson,make,show]
 
   let of_result cmd =
     function
@@ -74,3 +74,65 @@ let command_must_succeed
     ~log ?section ?additional_json cmd
   >>= fun (_, _) ->
   return ()
+
+
+module Saved_command = struct
+  module Output_archive = struct
+    type t = {
+      date: float;
+      out: string;
+      err: string;
+    } [@@deriving yojson,show,make]
+
+    let read ~storage ~path =
+      Storage.Json.get_json_opt storage ~path ~parse:of_yojson
+
+    let length t = String.length t.out + String.length t.err
+
+    let write t ~storage ~path =
+      Storage.Json.save_jsonable storage ~path (to_yojson t)
+
+    let to_string t = t.out ^ t.err
+
+  end
+  type t = {
+    command: string;
+    outcome: [
+      | `Ok of string * string
+      | `Error of Error.t
+    ];
+    archived: Output_archive.t option;
+  } [@@deriving yojson,show,make]
+
+
+  let run ~storage ~log ~section ~cmd ~path ~keep_the =
+    begin
+      command_must_succeed_with_output ~log ~section cmd
+      >>< function
+      | `Ok (out, err) ->
+        let new_output =
+          Output_archive.make ~out ~err ~date:(Unix.gettimeofday ()) in
+        begin match keep_the with
+        | `Latest ->
+          Output_archive.write ~storage ~path new_output
+        | `Largest ->
+          Output_archive.read ~storage ~path
+          >>= begin function
+          | Some old when Output_archive.(length old > length new_output) ->
+            return ()
+          | Some _ (* smaller *) | None ->
+            Output_archive.write ~storage ~path new_output
+          end
+        end
+        >>= fun () ->
+        Output_archive.read ~storage ~path >>= fun archived ->
+        return (make
+                  ~command:cmd ~outcome:(`Ok (out, err))
+                  ?archived ())
+      | `Error (`Shell_command e) ->
+        Output_archive.read ~storage ~path >>= fun archived ->
+        return (make
+                  ~command:cmd ~outcome:(`Error e) ?archived ())
+      | `Error (`Log _ as e) -> fail e
+    end
+end

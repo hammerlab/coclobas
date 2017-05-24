@@ -35,10 +35,10 @@ end
 
 let command_must_succeed ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed ~log cmd ?additional_json
-    ~section:["job"; id; "commands"]
+    ~section:(Job_common.job_section id)
 let command_must_succeed_with_output ~log ?additional_json ~id cmd =
   Hyper_shell.command_must_succeed_with_output ~log cmd ?additional_json
-    ~section:["job"; id; "commands"]
+    ~section:(Job_common.job_section id)
 
 let start ~log ~id ~specification =
   let spec = specification in
@@ -150,44 +150,26 @@ let start ~log ~id ~specification =
     (command_must_succeed ~additional_json ~log ~id)
     "kubectl create -f %s" tmp
 
-let save_command ~storage ~log ~id ~cmd ~path ~keep_the =
-  begin
-    command_must_succeed_with_output ~log ~id cmd
-    >>< function
-    | `Ok (out, err) ->
-      let new_output = out ^ err in
-      begin match keep_the with
-      | `Latest ->
-        Storage.update storage path new_output
-      | `Largest ->
-        Storage.read storage path
-        >>= begin function
-        | Some old when String.length old > String.length new_output ->
-          return ()
-        | Some _ (* smaller *) | None ->
-          Storage.update storage path new_output
-        end
-      end
-      >>= fun () ->
-      return (`Fresh, new_output)
-    | `Error (`Shell_command _ as e) ->
-      Storage.read storage path
-      >>= begin function
-      | Some old -> return (`Archived e, old)
-      | None -> fail e
-      end
-    | `Error (`Log _ as e) -> fail e
-  end
 
-let describe ~storage ~log ~id ~save_path =
+let describe ~storage ~log ~id =
   let cmd = sprintf "kubectl describe pod %s" id in
-  save_command ~storage ~log ~id ~cmd ~path:save_path
+  let save_path = Job_common.save_path id `Describe_output in
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~cmd ~path:save_path
+    ~section:(Job_common.job_section id)
     ~keep_the:`Latest
+  >>= fun logres ->
+  return (Job_common.Query_result.one_saved "Description" logres)
 
-let get_logs ~storage ~log ~id ~save_path =
+let get_logs ~storage ~log ~id =
+  let save_path = Job_common.save_path id `Logs_output in
   let cmd = sprintf "kubectl logs %s" id in
-  save_command ~storage ~log ~id ~cmd ~path:save_path
+  Hyper_shell.Saved_command.run
+    ~storage ~log ~cmd ~path:save_path
+    ~section:(Job_common.job_section id)
     ~keep_the:`Largest
+  >>= fun logres ->
+  return (Job_common.Query_result.one_saved "Logs" logres)
 
 
 let kill ~log ~id =

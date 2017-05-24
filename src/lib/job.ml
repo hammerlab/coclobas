@@ -69,21 +69,14 @@ let fresh spec =
   make ~id spec
 
 
-let make_path id =
-  (* TODO: use this in Kube_jobs uses of `~section` *)
-  function
-  | `Saved_state -> ["job"; id; "saved_state.json"]
-  | `Describe_output -> ["job"; id; "describe.out"]
-  | `Logs_output -> ["job"; id; "logs.out"]
-
 let save st job =
   Storage.Json.save_jsonable st
-    ~path:(make_path (id job) `Saved_state)
+    ~path:(Job_common.save_path (id job) `Saved_state)
     (to_yojson job)
 
 let get st job_id =
   Storage.Json.get_json st
-    ~path:(make_path job_id `Saved_state)
+    ~path:(Job_common.save_path job_id `Saved_state)
     ~parse:of_yojson
 
 let kind t = Specification.kind t.specification
@@ -96,10 +89,9 @@ let aws_state t =
 let get_logs ~storage ~log t =
   match kind t with
   | `Kube ->
-    let save_path = make_path t.id `Logs_output in
-    Kube_job.get_logs ~storage ~log ~id:t.id ~save_path
+    Kube_job.get_logs ~storage ~log ~id:t.id
   | `Local_docker ->
-    Local_docker_job.get_logs ~log ~id:t.id
+    Local_docker_job.get_logs ~storage ~log ~id:t.id
   | `Aws_batch ->
     aws_state t
     >>= fun state ->
@@ -108,14 +100,13 @@ let get_logs ~storage ~log t =
 let describe ~storage ~log t =
   match kind t with
   | `Kube ->
-    let save_path = make_path t.id `Describe_output in
-    Kube_job.describe ~storage ~log ~id:t.id ~save_path
+    Kube_job.describe ~storage ~log ~id:t.id
   | `Local_docker ->
-    Local_docker_job.describe ~log ~id:t.id
+    Local_docker_job.describe ~log ~id:t.id ~storage
   | `Aws_batch ->
     aws_state t
     >>= fun state ->
-    Aws_batch_job.describe ~log ~id:t.id ~state
+    Aws_batch_job.describe ~storage ~log ~id:t.id ~state
 
 let kill ~log t =
   match kind t with

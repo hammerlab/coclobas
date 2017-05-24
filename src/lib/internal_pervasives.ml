@@ -11,6 +11,11 @@ let return = Deferred_result.return
 let fail = Deferred_result.fail
                
 
+let of_ocaml_result =
+  function
+  | Ok o -> return o
+  | Error s -> fail s
+
 let dbg fmt =
   ksprintf (fun s -> printf "Cocldebug>> %s\n%!" s) fmt
 

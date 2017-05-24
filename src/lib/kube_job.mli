@@ -46,14 +46,10 @@ val start :
    | `Log of Log.Error.t ]) Deferred_result.t
 
 val describe :
-  storage:Storage.t ->
-  log:Log.t ->
-  id:string ->
-  save_path:Storage.key ->
-  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
-   [> `Log of Log.Error.t
-   | `Shell_command of Hyper_shell.Error.t
-   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
+  _ Job_common.Query_result.call_function
+
+val get_logs:
+  _ Job_common.Query_result.call_function
 
 val kill :
   log:Log.t ->
@@ -61,16 +57,6 @@ val kill :
   (unit,
    [> `Shell_command of Hyper_shell.Error.t
    | `Log of Log.Error.t ]) Deferred_result.t
-
-val get_logs:
-  storage:Storage.t ->
-  log:Log.t ->
-  id: string ->
-  save_path: Storage.key ->
-  ([ `Fresh | `Archived of [ `Shell_command of Hyper_shell.Error.t ] ] * string,
-   [> `Log of Log.Error.t
-   | `Shell_command of Hyper_shell.Error.t
-   | `Storage of [> Storage.Error.common ] ]) Deferred_result.t
 
 val get_status_json :
   log:Log.t ->
