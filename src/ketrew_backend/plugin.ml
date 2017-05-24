@@ -376,7 +376,8 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                      ]
                    | `Ok (out, err) ->
                      begin
-                       if Some (out ^ err) = s.archived
+                       if Some (out ^ err) =
+                          Option.map ~f:Output_archive.to_string s.archived
                        then should_display_archived := false
                      end;
                      "Success", description_list [
@@ -386,8 +387,15 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                    end;
                  ] in
                  let archived =
+                   let display_archive a =
+                     let open Output_archive in
+                     description_list [
+                       "On", date a.date;
+                       "STDOUT", code_block_or_empty a.out;
+                       "STDERR", code_block_or_empty a.err;
+                     ] in
                    if !should_display_archived then [
-                     "Archived content", option ~f:code_block_or_empty s.archived;
+                     "Archived content", option ~f:display_archive s.archived;
                    ] else [] in
                  command_and_result @ archived |> description_list
                end)))

@@ -5,11 +5,14 @@ open Internal_pervasives
 
 let job_section id = ["job"; id; "commands"]
 
-let save_path id =
+let save_path ?tag id =
+  let name ?(ext = "json") s =
+    sprintf "%s%s.%s"
+      s (Option.value_map ~default:"" tag ~f:(sprintf "-%s")) ext in
   function
-  | `Saved_state -> ["job"; id; "saved_state.json"]
-  | `Describe_output -> ["job"; id; "describe.out"]
-  | `Logs_output -> ["job"; id; "logs.out"]
+  | `Saved_state -> ["job"; id; name "saved_state"]
+  | `Describe_output -> ["job"; id; name "describe"]
+  | `Logs_output -> ["job"; id; name "logs"]
 
 (** The queries [describe] and [logs] have an interesting archival
     mechanism for their results, this module packs results together

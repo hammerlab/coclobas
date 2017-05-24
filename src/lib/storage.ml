@@ -120,6 +120,13 @@ module Json = struct
     >>= fun yo ->
     of_yojson_error ~info (parse yo)
 
+  let get_json_opt st ~path ~parse =
+    read st path
+    >>= begin function
+    | Some json -> parse_json_blob ~parse json >>| fun s -> Some s
+    | None -> return None
+    end
+
   let get_json st ~path ~parse =
     read st path
     >>= begin function

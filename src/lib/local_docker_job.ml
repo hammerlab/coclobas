@@ -40,15 +40,15 @@ let start ~log ~id ~specification =
      |> exec)
 
 let describe ~storage ~log ~id =
-  let save_path = Job_common.save_path id `Describe_output in
+  let save_path tag = Job_common.save_path ~tag id `Describe_output in
   Hyper_shell.Saved_command.run
-    ~storage ~log ~path:save_path
+    ~storage ~log ~path:(save_path "stats")
     ~section:(job_section id)
     ~keep_the:`Latest
     ~cmd:(["docker"; "stats"; "--no-stream"; id] |> exec)
   >>= fun stat_result ->
   Hyper_shell.Saved_command.run
-    ~storage ~log ~path:save_path
+    ~storage ~log ~path:(save_path "inspect")
     ~section:(job_section id)
     ~keep_the:`Latest
     ~cmd:(["docker"; "inspect"; id] |> exec)

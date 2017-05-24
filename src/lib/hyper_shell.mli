@@ -30,13 +30,21 @@ val command_must_succeed :
     Internal_pervasives.Deferred_result.t
 
 module Saved_command : sig
+  module Output_archive : sig
+    type t = {
+      date: float;
+      out: string;
+      err: string;
+    } [@@deriving yojson,show,make]
+    val to_string: t -> string
+  end
   type t = {
     command: string;
     outcome: [
       | `Ok of string * string
       | `Error of Error.t
     ];
-    archived: string option;
+    archived: Output_archive.t option;
   } [@@deriving yojson,show,make]
   val run :
     storage:Storage.t ->
@@ -46,5 +54,5 @@ module Saved_command : sig
     path:Storage.key ->
     keep_the:[ `Largest | `Latest ] ->
     (t, [> `Log of Log.Error.t | `Storage of [> Storage.Error.common ] ])
-    Internal_pervasives.Deferred_result.t
+      Internal_pervasives.Deferred_result.t
 end
