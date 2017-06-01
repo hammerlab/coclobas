@@ -65,7 +65,8 @@ let kubernetes_program ~base_url ~image ?(volume_mounts = []) p =
 let extra_mount_container_side = "/coclobas-ketrew-plugin-playground"
 let script_filename = "program-monitored-script"
 
-let local_docker_program ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
+let local_docker_program
+    ?cpus ?memory ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
   let tmp_dir =
     match tmp_dir with
     | Some d -> d
@@ -82,6 +83,7 @@ let local_docker_program ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
        Coclobas.Local_docker_job.Specification.(
          make ~image
            ~volume_mounts:(extra_mount :: volume_mounts)
+           ?cpus ?memory
            ["sh";
             extra_mount_container_side // playground_dir // script_filename]
        ))
@@ -266,6 +268,12 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
         description_list [
           "Image", uri dock.image;
           "Command", command (String.concat ~sep:" " dock.command);
+          "CPUS", option dock.cpus ~f:(textf "%.3f");
+          "Memory", option dock.memory (
+            function
+            | `GB x -> textf "%d GiB" x
+            | `MB x -> textf "%d MiB" x
+          );
           "Volumes",
           (List.map dock.volume_mounts ~f:(function
              | `Local (f, t) -> "Local", textf "%s:%s" f t)
