@@ -57,6 +57,8 @@ let main {port; test_kind; additional_test} =
             ~image:(Option.value ~default:"ubuntu" image) p
         | `Local_docker ->
           Coclobas_ketrew_backend.Plugin.local_docker_program
+            ~cpus:1.5
+            ~memory:(`MB 10)
             ~base_url
             ~image:(Option.value ~default:"ubuntu" image) p
       )

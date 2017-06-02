@@ -6,6 +6,8 @@ module Specification : sig
     image: string;
     command: string list [@main];
     volume_mounts: [ `Local of string * string ] list;
+    memory: [ `GB of int | `MB of int ] option;
+    cpus: float option;
   } [@@deriving yojson, show, make]
 end
 

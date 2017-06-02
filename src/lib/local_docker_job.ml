@@ -7,6 +7,8 @@ module Specification = struct
     image: string;
     command: string list [@main];
     volume_mounts: [ `Local of string * string ] list;
+    memory: [ `GB of int | `MB of int ] option;
+    cpus: float option;
   } [@@deriving yojson, show, make]
 end
 
@@ -32,9 +34,25 @@ let start ~log ~id ~specification =
         `Local (one, two) -> ["-v"; sprintf "%s:%s" one two]
       )
     |> List.concat in
+  let cpus =
+    Option.value_map ~default:[] specification.cpus
+      ~f:(fun c ->
+        (* [sprintf "--cpus=%f" c] -> This option is for Docker ≥ 1.13
+           Cf. https://docs.docker.com/engine/admin/resource_constraints/#cpu
+        *)
+          let period = 1000 in
+        [sprintf "--cpu-period=%d" period;
+         sprintf "--cpu-quota=%d" (c *. float period |> int_of_float)]) in
+  let memory =
+    Option.value_map ~default:[] specification.memory
+      ~f:(function
+        | `GB g -> [sprintf "--memory=%dg" g]
+        | `MB m -> [sprintf "--memory=%dm" m]) in
   command_must_succeed ~additional_json ~log ~id
     (["docker"; "run"; "--name"; id; "-d"] 
      @ mounts
+     @ cpus
+     @ memory
      @ [specification.image]
      @ specification.command
      |> exec)
