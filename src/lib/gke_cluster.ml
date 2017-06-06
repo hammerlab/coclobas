@@ -6,7 +6,7 @@ type t = {
   min_nodes: int [@default 1];
   max_nodes: int;
   machine_type: string [@default "n1-highmem-8"];
-  image_type: string option;
+  image_type: [ `Set of string | `Default] [@default (`Set "container_vm")];
 } [@@deriving yojson, show, make]
 
 let save ~storage:st cluster =
@@ -39,7 +39,9 @@ let max_started_jobs cluster =
 let gcloud_start ~log t =
   let cmd =
     let image_type_option =
-      Option.value_map t.image_type ~default:"" ~f:(sprintf "--image-type=%s")
+      match t.image_type with
+      | `Default -> ""
+      | `Set i -> sprintf "--image-type=%s" i
     in
     sprintf 
       "gcloud container clusters create %s %s \

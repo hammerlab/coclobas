@@ -6,14 +6,14 @@ type t = private {
   min_nodes : int;
   max_nodes : int;
   machine_type : string;
-  image_type: string option;
+  image_type: [ `Set of string | `Default] [@default (`Set "container_vm")];
 } [@@deriving yojson, show]
 
 val make :
   zone:string ->
   ?min_nodes:int -> max_nodes:int ->
   ?machine_type: string ->
-  ?image_type: string ->
+  ?image_type: [ `Set of string | `Default] ->
   string -> t
 
 val max_started_jobs: t -> int

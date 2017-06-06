@@ -179,7 +179,9 @@ let main () =
           (i_need gke_name "A cluster-name is required for GKE clusters.")
           ~zone:(i_need gzone "A GCloud-zone name is required for GKE clusters.")
           ~max_nodes
-          ?image_type
+          ~image_type:(
+            Option.value_map image_type ~default:`Default ~f:(fun s -> `Set s)
+          )
           ?machine_type
         |> Cluster.gke
       | `Local_docker ->
