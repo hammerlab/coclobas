@@ -7,9 +7,22 @@ module Specification = struct
       path: string;
       point: string;
       read_only: bool [@default false];
-    }
-      [@@deriving yojson, show, make]
-    let id m = Hashtbl.hash m |> sprintf "%s-%x" m.host
+    } [@@deriving yojson, show, make]
+    let id m =
+      let sanitize_dns s =
+        String.map s ~f:begin
+          function
+          | ('a' .. 'z' | '0' .. '9' | 'A' .. 'Z') as c -> c
+          | other -> '-'
+        end
+        |> fun s ->
+        begin match s.[0] with
+        | Some ('a' .. 'z') -> s
+        | None -> "nohost"
+        | other -> "host-" ^ s
+        end
+      in
+      Hashtbl.hash m |> sprintf "%s-%x" (sanitize_dns m.host)
     let point m = m.point
     let host m = m.host
     let path m = m.path
