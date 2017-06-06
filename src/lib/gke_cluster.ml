@@ -43,7 +43,7 @@ let gcloud_start ~log t =
     in
     sprintf 
       "gcloud container clusters create %s %s \
-       --quiet --wait \
+       --quiet \
        --zone %s --num-nodes=%d --min-nodes=%d --max-nodes=%d \
        --machine-type=%s \
        --enable-autoscaling"
