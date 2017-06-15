@@ -66,6 +66,7 @@ let extra_mount_container_side = "/coclobas-ketrew-plugin-playground"
 let script_filename = "program-monitored-script"
 
 let local_docker_program
+    ?(shell = "bash")
     ?cpus ?memory ?tmp_dir ~base_url ~image ?(volume_mounts = []) p =
   let tmp_dir =
     match tmp_dir with
@@ -84,14 +85,15 @@ let local_docker_program
          make ~image
            ~volume_mounts:(extra_mount :: volume_mounts)
            ?cpus ?memory
-           ["sh";
+           [shell;
             extra_mount_container_side // playground_dir // script_filename]
        ))
 
 let aws_batch_program ~base_url ~image ?(volume_mounts = [])
+    ?(shell = "bash")
     ?memory ?cpus ?job_role p =
   let script_path = "/tmp/coclobas-script.sh" in
-  let cmd = ["sh"; script_path ] in
+  let cmd = [shell; script_path ] in
   let script =
     Ketrew_pure.Monitored_script.(
       create p
