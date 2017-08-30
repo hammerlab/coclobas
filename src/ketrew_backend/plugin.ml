@@ -156,7 +156,9 @@ module Long_running_implementation : Ketrew.Long_running.LONG_RUNNING = struct
                                    playground)
                   |> to_string
                 ) in
-              System.ensure_directory_path playground
+              (* Permissions set to 0o777 because very often, inside
+                 the docker container, we have a different user. *)
+              System.ensure_directory_path ~perm:0o777 playground
               >>= fun () ->
               IO.write_file ~content:script (playground // script_filename)
             end >>< begin function
